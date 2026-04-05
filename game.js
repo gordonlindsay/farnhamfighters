@@ -1,7 +1,7 @@
 // ============================================================
 // FARNHAM FIGHTERS — Stage 1 Skeleton
 // ============================================================
-const GAME_VERSION = 'v58';
+const GAME_VERSION = 'v59';
 
 // Global error handler — shows init errors on canvas
 window.onerror = function(msg, src, line) {
@@ -419,9 +419,9 @@ function initTouchControls() {
     const buttons = [
         // Action buttons (bottom-right) — controller diamond: JUMP top, ATK left, THROW/SPL right, BLK bottom
         { id: 'tb_jump',    label: 'JUMP',  key: 'KeyW',     side: 'right', bottom: 140, right: 70,  w: 64, h: 64, round: true },
-        { id: 'tb_attack',  label: 'ATK',   key: 'Space',    side: 'right', bottom: 80,  right: 135, w: 56, h: 56, round: true },
+        { id: 'tb_block',   label: 'BLK',   key: 'Shift',    side: 'right', bottom: 80,  right: 135, w: 56, h: 56, round: true },
         { id: 'tb_throw',   label: 'SPL',   key: 'Control',  side: 'right', bottom: 80,  right: 10,  w: 56, h: 56, round: true },
-        { id: 'tb_block',   label: 'BLK',   key: 'Shift',    side: 'right', bottom: 20,  right: 70,  w: 56, h: 56, round: true },
+        { id: 'tb_attack',  label: 'ATK',   key: 'Space',    side: 'right', bottom: 20,  right: 70,  w: 56, h: 56, round: true },
         // Companion abilities (bottom-left, above joystick)
         { id: 'tb_compQ',   label: '🐕',   key: 'KeyQ',     side: 'left',  bottom: 165, left: 10,  w: 50, h: 50, round: true },
         { id: 'tb_compE',   label: '🐟',   key: 'KeyE',     side: 'left',  bottom: 165, left: 80,  w: 50, h: 50, round: true },
@@ -7116,7 +7116,7 @@ function drawLoseScreen() {
     ctx.globalAlpha = flashAlpha;
     ctx.fillStyle = '#e74c3c';
     ctx.font = 'bold 18px Segoe UI, sans-serif';
-    ctx.fillText(gamepadConnected ? '✕ try again — ○ menu' : 'R try again — ESC menu', SCREEN_W / 2, SCREEN_H / 2 + 95);
+    ctx.fillText(touchControlsActive ? 'ATK retry — OK menu' : gamepadConnected ? '✕ try again — ○ menu' : 'R try again — ESC menu', SCREEN_W / 2, SCREEN_H / 2 + 95);
     ctx.globalAlpha = 1;
 
     ctx.textAlign = 'left';
@@ -9314,10 +9314,18 @@ function gameLoop() {
         if (lostScreenDelay > 0) { lostScreenDelay--; }
         else {
             // Only accept input after delay AND key must be freshly pressed
-            if ((keys['KeyR'] || keys['Enter'] || keys['Space']) && !lostInputHeld) { lostInputHeld = true; restart(); }
-            if (!(keys['KeyR'] || keys['Enter'] || keys['Space'])) lostInputHeld = false;
-            if ((keys['Escape'] || keys['KeyQ']) && !pauseExitHeld) { pauseExitHeld = true; startMusic('title'); gameState = 'title'; }
-            if (!(keys['Escape'] || keys['KeyQ'])) pauseExitHeld = false;
+            if (touchControlsActive) {
+                // Mobile: ATK (Space) = retry, OK (Enter) = menu
+                if (keys['Space'] && !lostInputHeld) { lostInputHeld = true; restart(); }
+                if (keys['Enter'] && !pauseExitHeld) { pauseExitHeld = true; startMusic('title'); gameState = 'title'; }
+                if (!keys['Space']) lostInputHeld = false;
+                if (!keys['Enter']) pauseExitHeld = false;
+            } else {
+                if ((keys['KeyR'] || keys['Enter'] || keys['Space']) && !lostInputHeld) { lostInputHeld = true; restart(); }
+                if (!(keys['KeyR'] || keys['Enter'] || keys['Space'])) lostInputHeld = false;
+                if ((keys['Escape'] || keys['KeyQ']) && !pauseExitHeld) { pauseExitHeld = true; startMusic('title'); gameState = 'title'; }
+                if (!(keys['Escape'] || keys['KeyQ'])) pauseExitHeld = false;
+            }
         }
 
     // ===== VS CHARACTER SELECT =====
