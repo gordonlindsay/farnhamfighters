@@ -1315,7 +1315,7 @@ const LEVELS = {
     },
 };
 
-const TOTAL_LEVELS = TOTAL_LEVELS;
+const TOTAL_LEVELS = Object.keys(LEVELS).length;
 
 function getCurrentLevel() {
     return LEVELS[currentLevel] || LEVELS[1];
