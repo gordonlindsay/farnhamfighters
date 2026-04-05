@@ -1,7 +1,182 @@
 // ============================================================
 // FARNHAM FIGHTERS — Stage 1 Skeleton
 // ============================================================
-const GAME_VERSION = 'v60';
+const GAME_VERSION = 'v62';
+
+// ============================================================
+// ACHIEVEMENTS SYSTEM
+// ============================================================
+const ACHIEVEMENTS = {
+    first_blood:    { name: 'First Blood',       icon: '💀', desc: 'Defeat your first enemy' },
+    sticker_fan:    { name: 'Sticker Fan',        icon: '⚽', desc: 'Collect 20 stickers in one run' },
+    sticker_master: { name: 'Sticker Collector',  icon: '🏆', desc: 'Collect every sticker in a level' },
+    stage_clear:    { name: 'Stage Clear',         icon: '🚩', desc: 'Complete a stage' },
+    boss_slayer:    { name: 'Boss Slayer',         icon: '👑', desc: 'Defeat a boss' },
+    untouchable:    { name: 'Untouchable',         icon: '🛡️', desc: 'Complete a stage without taking damage' },
+    speed_runner:   { name: 'Speed Runner',        icon: '⚡', desc: 'Complete a level in under 3 minutes' },
+    full_house:     { name: 'Full House',          icon: '🎰', desc: 'Max out all upgrades in a run' },
+    vs_champion:    { name: 'VS Champion',         icon: '🥊', desc: 'Win a VS match' },
+    all_chars:      { name: 'All-Rounder',         icon: '⭐', desc: 'Beat the game with every character' },
+    survivor:       { name: 'Survivor',            icon: '❤️', desc: 'Beat a boss with only 1 health left' },
+    enemy_ace:      { name: 'Enemy Ace',           icon: '💥', desc: 'Defeat every enemy in a stage' },
+};
+
+let unlockedAchievements = {};
+let achievementPopup = null; // { id, timer }
+const ACHIEVEMENT_POPUP_DURATION = 180; // 3 seconds at 60fps
+
+function loadAchievements() {
+    try {
+        const saved = localStorage.getItem('ff_achievements');
+        if (saved) unlockedAchievements = JSON.parse(saved);
+    } catch (e) { /* localStorage may be unavailable */ }
+}
+
+function saveAchievements() {
+    try {
+        localStorage.setItem('ff_achievements', JSON.stringify(unlockedAchievements));
+    } catch (e) { /* localStorage may be unavailable */ }
+}
+
+function unlockAchievement(id) {
+    if (unlockedAchievements[id]) return; // already unlocked
+    if (!ACHIEVEMENTS[id]) return; // invalid id
+    unlockedAchievements[id] = Date.now();
+    saveAchievements();
+    achievementPopup = { id: id, timer: ACHIEVEMENT_POPUP_DURATION };
+    // Save which characters have beaten the game (for all_chars)
+    try {
+        const chars = JSON.parse(localStorage.getItem('ff_beaten_chars') || '[]');
+        localStorage.setItem('ff_beaten_chars', JSON.stringify(chars));
+    } catch (e) {}
+}
+
+function drawAchievementPopup() {
+    if (!achievementPopup) return;
+    achievementPopup.timer--;
+    if (achievementPopup.timer <= 0) { achievementPopup = null; return; }
+
+    const ach = ACHIEVEMENTS[achievementPopup.id];
+    if (!ach) return;
+
+    // Slide in from top
+    const progress = Math.min(1, (ACHIEVEMENT_POPUP_DURATION - achievementPopup.timer) / 15);
+    const fadeOut = achievementPopup.timer < 30 ? achievementPopup.timer / 30 : 1;
+    const yPos = -50 + progress * 60;
+
+    ctx.save();
+    ctx.globalAlpha = fadeOut;
+
+    // Banner
+    const bannerW = 280;
+    const bannerH = 44;
+    const bx = (SCREEN_W - bannerW) / 2;
+    ctx.fillStyle = 'rgba(20,20,40,0.9)';
+    ctx.beginPath(); ctx.roundRect(bx, yPos, bannerW, bannerH, 10); ctx.fill();
+    ctx.strokeStyle = '#f1c40f';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(bx, yPos, bannerW, bannerH, 10); ctx.stroke();
+
+    // Icon
+    ctx.font = '22px Segoe UI, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(ach.icon, bx + 10, yPos + 30);
+
+    // Title
+    ctx.fillStyle = '#f1c40f';
+    ctx.font = 'bold 13px Segoe UI, sans-serif';
+    ctx.fillText('ACHIEVEMENT UNLOCKED', bx + 42, yPos + 17);
+
+    // Name
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px Segoe UI, sans-serif';
+    ctx.fillText(ach.name + ' — ' + ach.desc, bx + 42, yPos + 34);
+
+    ctx.restore();
+}
+
+function drawAchievementsScreen() {
+    ctx.fillStyle = 'rgba(10,10,30,0.95)';
+    ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#f1c40f';
+    ctx.font = 'bold 32px Segoe UI, sans-serif';
+    ctx.fillText('ACHIEVEMENTS', SCREEN_W / 2, 45);
+
+    const achKeys = Object.keys(ACHIEVEMENTS);
+    const cols = 3;
+    const cardW = 280;
+    const cardH = 52;
+    const gapX = 20;
+    const gapY = 10;
+    const startX = (SCREEN_W - (cols * cardW + (cols - 1) * gapX)) / 2;
+    const startY = 70;
+
+    for (let i = 0; i < achKeys.length; i++) {
+        const key = achKeys[i];
+        const ach = ACHIEVEMENTS[key];
+        const unlocked = !!unlockedAchievements[key];
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const cx = startX + col * (cardW + gapX);
+        const cy = startY + row * (cardH + gapY);
+
+        // Card background
+        ctx.fillStyle = unlocked ? 'rgba(46,204,113,0.15)' : 'rgba(255,255,255,0.05)';
+        ctx.beginPath(); ctx.roundRect(cx, cy, cardW, cardH, 8); ctx.fill();
+        ctx.strokeStyle = unlocked ? '#2ecc71' : 'rgba(255,255,255,0.15)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.roundRect(cx, cy, cardW, cardH, 8); ctx.stroke();
+
+        // Icon
+        ctx.font = '22px Segoe UI, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = unlocked ? '#fff' : '#555';
+        ctx.fillText(unlocked ? ach.icon : '🔒', cx + 10, cy + 33);
+
+        // Name
+        ctx.fillStyle = unlocked ? '#fff' : '#666';
+        ctx.font = 'bold 13px Segoe UI, sans-serif';
+        ctx.fillText(ach.name, cx + 42, cy + 20);
+
+        // Description
+        ctx.fillStyle = unlocked ? '#aaa' : '#444';
+        ctx.font = '11px Segoe UI, sans-serif';
+        ctx.fillText(ach.desc, cx + 42, cy + 38);
+    }
+
+    // Progress bar
+    const total = achKeys.length;
+    const done = Object.keys(unlockedAchievements).length;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#888';
+    ctx.font = '14px Segoe UI, sans-serif';
+    ctx.fillText(done + ' / ' + total + ' Unlocked', SCREEN_W / 2, SCREEN_H - 40);
+
+    // Progress bar visual
+    const barW = 200;
+    const barH = 8;
+    const barX = (SCREEN_W - barW) / 2;
+    const barY = SCREEN_H - 28;
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.beginPath(); ctx.roundRect(barX, barY, barW, barH, 4); ctx.fill();
+    ctx.fillStyle = '#2ecc71';
+    ctx.beginPath(); ctx.roundRect(barX, barY, barW * (done / total), barH, 4); ctx.fill();
+
+    // Back hint
+    const flash = 0.5 + Math.sin(Date.now() * 0.004) * 0.5;
+    ctx.globalAlpha = flash;
+    ctx.fillStyle = '#ccc';
+    ctx.font = '14px Segoe UI, sans-serif';
+    ctx.fillText(touchControlsActive ? 'OK to go back' : gamepadConnected ? '○ / ESC to go back' : 'ESC to go back', SCREEN_W / 2, SCREEN_H - 8);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+}
+
+// Load achievements on startup
+loadAchievements();
 
 // Global error handler — shows init errors on canvas
 window.onerror = function(msg, src, line) {
@@ -264,22 +439,27 @@ function initTouchControls() {
         const p = touchToCanvas(t.clientX, t.clientY);
         const inMenu = (gameState === 'title' || gameState === 'select' || gameState === 'vs_select' ||
                         gameState === 'level_select' || gameState === 'stage_complete' || gameState === 'won' ||
-                        gameState === 'lost' || gameState === 'vs_results' || gameState === 'shop');
+                        gameState === 'lost' || gameState === 'vs_results' || gameState === 'shop' || gameState === 'achievements');
 
         if (inMenu) {
             if (gameState === 'title') {
-                // Adventure button: roughly y 400-455, centered
-                if (p.y >= 390 && p.y <= 460 && p.x >= 300 && p.x <= 660) {
-                    titleCursor = 0;
-                    resetHeldGuards();
-                    tapKey('Enter', 120);
+                // Menu buttons: y starts at SCREEN_H-175, 30px apart, 28px tall
+                const menuY0 = SCREEN_H - 175;
+                for (let mi = 0; mi < 4; mi++) {
+                    const by = menuY0 + mi * 30 - 13;
+                    if (p.y >= by && p.y <= by + 28 && p.x >= 170 && p.x <= 790) {
+                        titleCursor = mi;
+                        if (mi !== 2) { // Daddy Selection uses ←/→, not Enter
+                            resetHeldGuards();
+                            tapKey('Enter', 120);
+                        }
+                        break;
+                    }
                 }
-                // VS Mode button: roughly y 455-510
-                if (p.y >= 460 && p.y <= 520 && p.x >= 300 && p.x <= 660) {
-                    titleCursor = 1;
-                    resetHeldGuards();
-                    tapKey('Enter', 120);
-                }
+            } else if (gameState === 'achievements') {
+                // Any tap = back to title
+                resetHeldGuards();
+                tapKey('Escape', 120);
             } else if (gameState === 'select' || gameState === 'vs_select') {
                 // Left third = prev character
                 if (p.x < 350) { tapKey('ArrowLeft', 80); return; }
@@ -635,7 +815,7 @@ function pollGamepad() {
     // Is the game on a menu screen?
     const inMenu = (gameState === 'title' || gameState === 'select' || gameState === 'level_select'
         || gameState === 'stage_complete' || gameState === 'shop' || gameState === 'won' || gameState === 'lost'
-        || gameState === 'vs_select' || gameState === 'vs_results');
+        || gameState === 'vs_select' || gameState === 'vs_results' || gameState === 'achievements');
 
     // --- Gamepad 1: always P1 when two controllers, else uses p1ControlType ---
     const lx = gp.axes[0] || 0;
@@ -1147,7 +1327,7 @@ let cameraX = 0;
 
 // --- Game Mode ---
 let gameMode = 'solo'; // 'solo' or 'vs'
-let titleCursor = 0; // 0 = Adventure, 1 = VS Mode, 2 = Daddy Mode
+let titleCursor = 0; // 0 = Adventure, 1 = VS Mode, 2 = Daddy Mode, 3 = Achievements
 let titleConfirmHeld = false;
 
 // --- Daddy Mode — rename characters based on who's playing ---
@@ -1399,6 +1579,10 @@ function purchaseUpgrade(key) {
     upgrades[key]++;
     applyUpgrades();
     sfxWeapon();
+    // Check full house achievement — all available upgrades maxed
+    const items = getShopItems();
+    const allMaxed = items.every(k => upgrades[k] >= upgradeDefinitions[k].maxLevel);
+    if (allMaxed) unlockAchievement('full_house');
     return true;
 }
 
@@ -1463,7 +1647,7 @@ const player = {
     blockTimer: 0,     // how long current block has been held
     animFrame: 0,
     animTimer: 0,
-    rangedAmmo: 0, // ranged ammo — earned from weapon pickups
+    rangedAmmo: 3, // ranged ammo — replenished by weapon pickups + slow regen
     _rangedHeld: false,
     // Special ability state
     specialCooldown: 0,  // frames until special is available again
@@ -4293,7 +4477,7 @@ function initVsMode() {
     player.health = d1.playerHealth; player.maxHealth = d1.playerHealth;
     player.isAttacking = false; player.attackTimer = 0; player.attackCooldown = 0;
     player.invincible = 60; player.onGround = false; player.jumps = 0;
-    player.rangedAmmo = 3;
+    player.rangedAmmo = difficulty === 'child' ? 5 : 3;
     player.specialCooldown = 0; player.specialActive = 0; player.specialType = null; player._specialHeld = false;
 
     // Reset P2
@@ -4301,7 +4485,7 @@ function initVsMode() {
     player2.health = d2.playerHealth; player2.maxHealth = d2.playerHealth;
     player2.isAttacking = false; player2.attackTimer = 0; player2.attackCooldown = 0;
     player2.invincible = 60; player2.onGround = false; player2.jumps = 0;
-    player2.rangedAmmo = 3;
+    player2.rangedAmmo = p2Difficulty === 'child' ? 5 : 3;
     player2.specialCooldown = 0; player2.specialActive = 0; player2.specialType = null; player2._specialHeld = false;
 
     cameraX = 0; cameraX2 = 0;
@@ -6255,7 +6439,7 @@ function drawWeaponPickups() {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         const ballEmoji = CHAR_INFO[selectedCharacter].ballIcon;
-        ctx.fillText(ballEmoji + '×3', 0, 0);
+        ctx.fillText(ballEmoji + '×5', 0, 0);
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
 
@@ -6516,9 +6700,8 @@ function drawHUD() {
     ctx.font = 'bold 14px Segoe UI, sans-serif';
     const totalStickers = stickers.length;
     ctx.fillText('⚽ ' + stickersCollected + '/' + totalStickers, SCREEN_W - 95, 26);
-    ctx.fillStyle = player.rangedAmmo > 0 ? '#3498db' : '#555';
-    const ballIcon = CHAR_INFO[selectedCharacter].ballIcon;
-    ctx.fillText(ballIcon + ' ×' + player.rangedAmmo, SCREEN_W - 95, 48);
+    ctx.fillStyle = player.rangedAmmo > 0 ? '#e67e22' : '#555';
+    ctx.fillText('🔥 ×' + player.rangedAmmo, SCREEN_W - 95, 48);
 
     // Kill gate progress
     const stageIdx = currentStage - 1;
@@ -6704,29 +6887,31 @@ function drawTitleScreen() {
     ctx.textAlign = 'center';
 
     // Mode selection buttons (positioned in lower portion)
-    const modes = ['Adventure', 'VS Mode (Split-Screen)', '👨 Daddy Selection: ' + DADDY_MODES[daddyModeIndex]];
+    const achCount = Object.keys(unlockedAchievements).length;
+    const achTotal = Object.keys(ACHIEVEMENTS).length;
+    const modes = ['Adventure', 'VS Mode (Split-Screen)', '👨 Daddy Selection: ' + DADDY_MODES[daddyModeIndex], '🏆 Achievements (' + achCount + '/' + achTotal + ')'];
     for (let i = 0; i < modes.length; i++) {
-        const my = SCREEN_H - 155 + i * 34;
+        const my = SCREEN_H - 175 + i * 30;
         const selected = titleCursor === i;
         // Button background
         ctx.fillStyle = selected ? 'rgba(233, 69, 96, 0.85)' : 'rgba(0,0,0,0.5)';
-        ctx.beginPath(); ctx.roundRect(SCREEN_W / 2 - 140, my - 15, 280, 32, 8); ctx.fill();
+        ctx.beginPath(); ctx.roundRect(SCREEN_W / 2 - 155, my - 13, 310, 28, 8); ctx.fill();
         // Button border
         if (selected) {
             ctx.strokeStyle = '#f1c40f';
             ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.roundRect(SCREEN_W / 2 - 140, my - 15, 280, 32, 8); ctx.stroke();
+            ctx.beginPath(); ctx.roundRect(SCREEN_W / 2 - 155, my - 13, 310, 28, 8); ctx.stroke();
         }
         // Text
-        ctx.fillStyle = selected ? '#fff' : (i === 2 ? '#aaa' : '#ccc');
-        ctx.font = selected ? 'bold 18px Segoe UI, sans-serif' : '16px Segoe UI, sans-serif';
-        ctx.fillText(modes[i], SCREEN_W / 2, my + 5);
+        ctx.fillStyle = selected ? '#fff' : (i >= 2 ? '#aaa' : '#ccc');
+        ctx.font = selected ? 'bold 16px Segoe UI, sans-serif' : '14px Segoe UI, sans-serif';
+        ctx.fillText(modes[i], SCREEN_W / 2, my + 4);
         // Daddy Mode arrows
         if (i === 2 && selected) {
             ctx.fillStyle = '#f1c40f';
-            ctx.font = 'bold 18px Segoe UI, sans-serif';
-            ctx.fillText('◀', SCREEN_W / 2 - 130, my + 5);
-            ctx.fillText('▶', SCREEN_W / 2 + 130, my + 5);
+            ctx.font = 'bold 16px Segoe UI, sans-serif';
+            ctx.fillText('◀', SCREEN_W / 2 - 140, my + 4);
+            ctx.fillText('▶', SCREEN_W / 2 + 140, my + 4);
         }
     }
 
@@ -7221,8 +7406,17 @@ function updatePlayer() {
         }
         player._rangedHeld = true;
     }
-    if (!keys['Control']) player._rangedHeld = false;
+    if (!keys['Control']) { player._rangedHeld = false; player._specialHeld = false; }
     updateSpecialAbility(player, selectedCharacter, enemies, projectiles);
+
+    // Slow ammo regen (child: 1 every 5s, adult: 1 every 10s, max 5)
+    if (!player._ammoRegenTimer) player._ammoRegenTimer = 0;
+    player._ammoRegenTimer++;
+    const regenRate = difficulty === 'child' ? 300 : 600;
+    if (player._ammoRegenTimer >= regenRate && player.rangedAmmo < 5) {
+        player.rangedAmmo++;
+        player._ammoRegenTimer = 0;
+    }
 
     // Companion abilities
     if (keys['KeyQ'] && !player.compQHeld) {
@@ -7323,6 +7517,10 @@ function updatePlayer() {
             currentStage = newStage;
             stageCompleteTimer = STAGE_COMPLETE_DURATION;
             gameState = 'stage_complete';
+            // Achievements — stage clear
+            unlockAchievement('stage_clear');
+            if (player.health >= player.maxHealth) unlockAchievement('untouchable');
+            if (stageKillCounts[stageIdx] >= stageEnemyCounts[stageIdx]) unlockAchievement('enemy_ace');
             stopMusic();
             return;
         }
@@ -7621,7 +7819,7 @@ function updateCollectibles() {
         if (rectCollision(player, w)) {
             w.collected = true;
             weaponsCollected++;
-            player.rangedAmmo += 3; // each pickup gives 3 shots
+            player.rangedAmmo += 5; // each pickup gives 5 shots
             spawnParticles(w.x + w.width / 2, w.y + w.height / 2, '#e74c3c', 10, 14, 4);
             addScreenShake(2, 4);
             sfxWeapon();
@@ -7995,8 +8193,17 @@ function updateBossFight() {
         }
         player._rangedHeld = true;
     }
-    if (!keys['Control']) player._rangedHeld = false;
+    if (!keys['Control']) { player._rangedHeld = false; player._specialHeld = false; }
     updateSpecialAbility(player, selectedCharacter, [], projectiles);
+
+    // Slow ammo regen in boss fight
+    if (!player._ammoRegenTimer) player._ammoRegenTimer = 0;
+    player._ammoRegenTimer++;
+    const bossRegenRate = difficulty === 'child' ? 300 : 600;
+    if (player._ammoRegenTimer >= bossRegenRate && player.rangedAmmo < 5) {
+        player.rangedAmmo++;
+        player._ammoRegenTimer = 0;
+    }
 
     // Companion abilities in boss fight
     if (keys['KeyQ'] && !player.compQHeld) { useCompanionAbility('Q'); player.compQHeld = true; }
@@ -8875,7 +9082,7 @@ function startLevel(levelNum) {
     // Keep stickersCollected from previous levels (RPG progression)
     weaponPickups = createWeaponPickups();
     weaponsCollected = 0;
-    player.rangedAmmo = 0;
+    player.rangedAmmo = difficulty === 'child' ? 5 : 3;
     companionPickups = createCompanionPickups();
     activeCompanion = null;
     companionCooldown = 0;
@@ -8917,7 +9124,7 @@ function restart() {
     stickersCollected = 0;
     weaponPickups = createWeaponPickups();
     weaponsCollected = 0;
-    player.rangedAmmo = 0;
+    player.rangedAmmo = difficulty === 'child' ? 5 : 3;
     companionPickups = createCompanionPickups();
     activeCompanion = null;
     companionCooldown = 0;
@@ -8997,10 +9204,10 @@ function gameLoop() {
         drawTitleScreen();
         // Navigate mode selection
         if ((keys['ArrowUp'] || keys['KeyW'] || keys['JoystickUp']) && !titleKeyHeld) {
-            titleCursor = (titleCursor - 1 + 3) % 3;
+            titleCursor = (titleCursor - 1 + 4) % 4;
             titleKeyHeld = true;
         } else if ((keys['ArrowDown'] || keys['KeyS'] || keys['JoystickDown']) && !titleKeyHeld) {
-            titleCursor = (titleCursor + 1) % 3;
+            titleCursor = (titleCursor + 1) % 4;
             titleKeyHeld = true;
         }
         if (!(keys['ArrowUp'] || keys['KeyW'] || keys['ArrowDown'] || keys['KeyS'] || keys['JoystickUp'] || keys['JoystickDown'])) titleKeyHeld = false;
@@ -9019,6 +9226,8 @@ function gameLoop() {
             titleConfirmHeld = true;
             if (titleCursor === 2) {
                 // Daddy Selection — no action on Enter/X, use ←/→ to cycle
+            } else if (titleCursor === 3) {
+                gameState = 'achievements';
             } else if (titleCursor === 0) {
                 gameMode = 'solo';
                 selectConfirmHeld = true; // prevent Enter carrying over to select screen
@@ -9039,6 +9248,15 @@ function gameLoop() {
             }
         }
         if (!keys['Enter']) titleConfirmHeld = false;
+
+    // ===== ACHIEVEMENTS SCREEN =====
+    } else if (gameState === 'achievements') {
+        drawAchievementsScreen();
+        if ((keys['Escape'] || keys['KeyQ'] || keys['Enter']) && !pauseExitHeld) {
+            pauseExitHeld = true;
+            gameState = 'title';
+        }
+        if (!(keys['Escape'] || keys['KeyQ'] || keys['Enter'])) pauseExitHeld = false;
 
     // ===== CHARACTER SELECT =====
     } else if (gameState === 'select') {
@@ -9090,7 +9308,7 @@ function gameLoop() {
                 hearts = createHearts();
                 stickersCollected = 0;
                 weaponsCollected = 0;
-                player.rangedAmmo = 0;
+                player.rangedAmmo = difficulty === 'child' ? 5 : 3;
                 enemiesDefeated = 0; stageKillCounts = [0, 0, 0, 0];
                 gameStartTime = Date.now();
                 previousStage = 1;
@@ -9213,6 +9431,10 @@ function gameLoop() {
         updateVisualEffects();
         updateAmbientParticles();
         updateCamera();
+        // Achievement checks during play
+        if (enemiesDefeated >= 1) unlockAchievement('first_blood');
+        if (stickersCollected >= 20) unlockAchievement('sticker_fan');
+        if (stickersCollected >= stickers.length && stickers.length > 0) unlockAchievement('sticker_master');
 
         drawBackground();
         drawPlatforms();
@@ -9278,6 +9500,19 @@ function gameLoop() {
                 if (!unlockedCharacters.includes('mummy')) unlockedCharacters.push('mummy');
                 if (!unlockedCharacters.includes('daddy')) unlockedCharacters.push('daddy');
             }
+            // Achievements
+            unlockAchievement('boss_slayer');
+            if (player.health === 1) unlockAchievement('survivor');
+            const timeTaken = (gameEndTime - gameStartTime) / 1000;
+            if (timeTaken < 180) unlockAchievement('speed_runner');
+            // Track beaten characters for all_chars achievement
+            try {
+                const chars = JSON.parse(localStorage.getItem('ff_beaten_chars') || '[]');
+                if (!chars.includes(selectedCharacter)) chars.push(selectedCharacter);
+                localStorage.setItem('ff_beaten_chars', JSON.stringify(chars));
+                const playable = ['heath', 'charlie', 'rupert', 'jessica', 'emilia'];
+                if (playable.every(c => chars.includes(c))) unlockAchievement('all_chars');
+            } catch (e) {}
         }
         drawBossFight();
         drawWinScreen();
@@ -9525,6 +9760,11 @@ function gameLoop() {
                 vsConfirmHeld = true; // prevent immediate restart
                 pauseExitHeld = true; // prevent immediate exit
                 gameState = 'vs_results';
+                // VS Champion achievement
+                if (!vsResultsShown) {
+                    vsResultsShown = true;
+                    unlockAchievement('vs_champion');
+                }
             }
         }
 
@@ -9555,6 +9795,8 @@ function gameLoop() {
     ctx.fillText('at: ' + (err.stack || '').split('\n')[1], 10, 50);
     console.error('Game loop error:', err);
   }
+    // Achievement popup overlay (draws on top of everything)
+    drawAchievementPopup();
     requestAnimationFrame(gameLoop);
 }
 
