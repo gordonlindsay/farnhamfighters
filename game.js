@@ -1537,7 +1537,7 @@ let vsResultsShown = false;
 const P2_KEYS = {
     left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown',
     attack: 'NumpadDecimal', ranged: 'NumpadEnter', jump: 'ArrowUp', block: 'Numpad0',
-    special: 'NumpadAdd', compQ: 'Numpad7', compE: 'Numpad9',
+    special: 'NumpadEnter', compQ: 'Numpad7', compE: 'Numpad9',
 };
 // P1 uses WASD + Space(melee) + F(ranged) + B(block) + G(special)
 const P1_KEYS = {
@@ -4958,11 +4958,11 @@ function drawVsHalf(p, cam, enemyList, stickerList, projList, pChar, pNum, stick
     ctx.font = '8px Segoe UI, sans-serif';
     ctx.textAlign = 'center';
     if (isCtrlP) {
-        ctx.fillText('Stick Move  △ Jump  ✕ ' + atkName + '  ○ Throw  □ Block  R2 ' + specN, halfW / 2, SCREEN_H - 4);
+        ctx.fillText('Stick Move  △ Jump  ✕ ' + atkName + '  ○ Throw/' + specN + '  □ Block', halfW / 2, SCREEN_H - 4);
     } else if (pNum === 1) {
         ctx.fillText('WASD Move  W Jump  SPACE ' + atkName + '  CTRL Throw  SHIFT Block  G ' + specN, halfW / 2, SCREEN_H - 4);
     } else {
-        ctx.fillText('← → Move  ↑ Jump  Num. ' + atkName + '  Enter Throw  Num0 Block  + ' + specN, halfW / 2, SCREEN_H - 4);
+        ctx.fillText('← → Move  ↑ Jump  . ' + atkName + '  Enter Throw/' + specN + '  0 Block', halfW / 2, SCREEN_H - 4);
     }
     ctx.textAlign = 'left';
 
