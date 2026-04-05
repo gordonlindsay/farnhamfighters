@@ -1,7 +1,7 @@
 // ============================================================
 // FARNHAM FIGHTERS — Stage 1 Skeleton
 // ============================================================
-const GAME_VERSION = 'v62';
+const GAME_VERSION = 'v63';
 
 // ============================================================
 // ACHIEVEMENTS SYSTEM
@@ -602,9 +602,8 @@ function initTouchControls() {
         { id: 'tb_block',   label: 'BLK',   key: 'Shift',    side: 'right', bottom: 80,  right: 135, w: 56, h: 56, round: true },
         { id: 'tb_throw',   label: 'SPL',   key: 'Control',  side: 'right', bottom: 80,  right: 10,  w: 56, h: 56, round: true },
         { id: 'tb_attack',  label: 'ATK',   key: 'Space',    side: 'right', bottom: 20,  right: 70,  w: 56, h: 56, round: true },
-        // Companion abilities (bottom-left, above joystick)
-        { id: 'tb_compQ',   label: '🐕',   key: 'KeyQ',     side: 'left',  bottom: 165, left: 10,  w: 50, h: 50, round: true },
-        { id: 'tb_compE',   label: '🐟',   key: 'KeyE',     side: 'left',  bottom: 165, left: 80,  w: 50, h: 50, round: true },
+        // Companion special (bottom-left, above joystick)
+        { id: 'tb_compQ',   label: '🐾',   key: 'KeyQ',     side: 'left',  bottom: 165, left: 40,  w: 56, h: 56, round: true },
         // Top bar: pause + OK + fullscreen
         { id: 'tb_pause',  label: '⏸',  key: 'Escape', side: 'right', bottom: -1, top: 6, right: 8,  w: 40, h: 32 },
         { id: 'tb_enter',  label: 'OK',  key: 'Enter',  side: 'right', bottom: -1, top: 6, right: 56, w: 48, h: 32 },
@@ -883,15 +882,14 @@ function pollGamepad() {
         btnMap[2] = 'Shift';     // Square = block
     }
     btnMap[3] = 'GamepadJump';   // Triangle = jump
-    btnMap[4] = 'KeyQ';          // L1 = companion ability Q
-    btnMap[5] = 'KeyE';          // R1 = companion ability E
+    btnMap[4] = 'KeyQ';          // L1 = companion special (screen-clear)
+    btnMap[5] = inMenu ? 'Enter' : '';  // R1 = confirm on menus, unused in gameplay
     btnMap[8] = 'KeyR';          // Share = restart
     btnMap[9] = 'Escape';        // Options = pause
     btnMap[10] = 'KeyC';         // L3 = continue from shop
     btnMap[11] = 'KeyN';         // R3 = next level
     btnMap[6] = 'KeyM';          // L2 = mute
     btnMap[7] = 'Control';        // R2 = combined ranged/special
-    if (inMenu) btnMap[5] = 'Enter'; // R1 = confirm on menus too
 
     for (const [btnIdx, keyCode] of Object.entries(btnMap)) {
         const btn = gp.buttons[btnIdx];
@@ -960,8 +958,8 @@ function pollGamepad() {
                 p2BtnMap[2] = P2_KEYS.block;    // Square = block
             }
             p2BtnMap[3] = 'ArrowUp';            // Triangle = jump (ArrowUp is P2 jump)
-            p2BtnMap[4] = P2_KEYS.compQ;        // L1 = companion Q
-            p2BtnMap[5] = P2_KEYS.compE;        // R1 = companion E
+            p2BtnMap[4] = P2_KEYS.compQ;        // L1 = companion special
+            // R1 unused in gameplay
             p2BtnMap[7] = P2_KEYS.ranged;       // R2 = combined ranged/special
 
             for (const [btnIdx, keyCode] of Object.entries(p2BtnMap)) {
@@ -1722,13 +1720,13 @@ let vsResultsShown = false;
 const P2_KEYS = {
     left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown',
     attack: 'NumpadDecimal', ranged: 'NumpadEnter', jump: 'ArrowUp', block: 'Numpad0',
-    special: 'NumpadEnter', compQ: 'Numpad7', compE: 'Numpad9',
+    special: 'NumpadEnter', compQ: 'Numpad7',
 };
 // P1 uses WASD + Space(melee) + F(ranged) + B(block) + G(special)
 const P1_KEYS = {
     left: 'KeyA', right: 'KeyD', up: 'KeyW', down: 'KeyS',
     attack: 'Space', ranged: 'Control', jump: 'KeyW', jump2: 'GamepadJump', block: 'Shift',
-    special: 'KeyG', compQ: 'KeyQ', compE: 'KeyE',
+    special: 'KeyG', compQ: 'KeyQ',
 };
 
 // ============================================================
@@ -4614,55 +4612,39 @@ function updateVsPlayer(p, pKeys, isP2) {
     if (!k(rangedKey)) { p._rangedHeld = false; p._specialHeld = false; }
     updateSpecialAbility(p, charType, enemyList, projList);
 
-    // Companion abilities (L1/R1) — VS-aware version
+    // Companion special (screen-clear) — VS-aware version
     const vsComp = isP2 ? p2ActiveCompanion : p1ActiveCompanion;
     if (!p.compCooldown) p.compCooldown = 0;
     if (p.compCooldown > 0) p.compCooldown--;
     if (vsComp && p.compCooldown <= 0) {
         const vsEnemies = isP2 ? p2Enemies : p1Enemies;
-        const vsProj = isP2 ? p2Projectiles : p1Projectiles;
         if (pKeys.compQ && k(pKeys.compQ) && !p.compQHeld) {
-            if (vsComp.type === 'jules') {
-                for (const dir of [-1, 1]) {
-                    visualEffects.push({ type: 'claw', x: p.x + p.width / 2, y: p.y + p.height / 3, vx: dir * 8, timer: 30, maxTimer: 30, dir: dir });
+            // Screen-clear: kill all on-screen enemies for this player
+            const cam = isP2 ? cameraX2 : cameraX;
+            const screenLeft = cam;
+            const screenRight = cam + SCREEN_W / 2;
+            for (const e of vsEnemies) {
+                if (!e.alive) continue;
+                if (e.x + e.width > screenLeft && e.x < screenRight) {
+                    e.health = 0; e.alive = false; e.hitFlash = 15;
+                    spawnParticles(e.x + e.width / 2, e.y + e.height / 2, '#f1c40f', 8, 15, 3);
                 }
-                for (const e of vsEnemies) {
-                    if (!e.alive) continue;
-                    if (Math.abs((e.x + e.width / 2) - (p.x + p.width / 2)) < 200) {
-                        e.health -= 3; e.hitFlash = 15;
-                        if (e.health <= 0) e.alive = false;
-                    }
-                }
-                sfxClawScratch();
-                p.compCooldown = 90;
-            } else if (vsComp.type === 'fishies') {
-                vsProj.push({ x: p.x + (p.facing === 1 ? p.width + 5 : -10), y: p.y + p.height / 2, vx: p.facing * 7, vy: 0, spin: 0, alive: true, isWave: true, damage: 2, waveLife: 60 });
-                sfxFishtailKick();
-                p.compCooldown = 90;
             }
-            p.compQHeld = true;
-        }
-        if (pKeys.compE && k(pKeys.compE) && !p.compEHeld) {
             if (vsComp.type === 'jules') {
-                visualEffects.push({ type: 'soundwave', x: p.x + p.width / 2, y: p.y + p.height / 2, radius: 10, maxRadius: SCREEN_W * 0.6, timer: 45, maxTimer: 45, damaged: new Set(), vsEnemies: vsEnemies });
+                for (let i = 0; i < 20; i++) {
+                    visualEffects.push({ type: 'dogtreat', x: p.x + p.width / 2 - 200 + Math.random() * 400, y: -20 - Math.random() * 60, vx: (Math.random() - 0.5) * 2, vy: 3 + Math.random() * 4, timer: 60 + Math.random() * 30, maxTimer: 90, spin: Math.random() * Math.PI * 2 });
+                }
+                visualEffects.push({ type: 'soundwave', x: p.x + p.width / 2, y: p.y + p.height / 2, radius: 10, maxRadius: SCREEN_W * 0.4, timer: 45, maxTimer: 45, damaged: new Set() });
                 sfxMegaBark();
-                p.compCooldown = 150;
             } else if (vsComp.type === 'fishies') {
-                for (const e of vsEnemies) {
-                    if (!e.alive) continue;
-                    if (Math.abs((e.x + e.width / 2) - (p.x + p.width / 2)) < 150) {
-                        e.health -= 4; e.hitFlash = 15;
-                        if (e.health <= 0) e.alive = false;
-                    }
-                }
-                sfxFishMunch();
-                p.compCooldown = 120;
+                visualEffects.push({ type: 'soundwave', x: p.x + p.width / 2, y: p.y + p.height / 2, radius: 10, maxRadius: SCREEN_W * 0.4, timer: 45, maxTimer: 45, damaged: new Set(), color: 'rgba(52,152,219,' });
+                sfxFishtailKick();
             }
-            p.compEHeld = true;
+            p.compCooldown = 300; // 5 second cooldown
+            p.compQHeld = true;
         }
     }
     if (pKeys.compQ && !k(pKeys.compQ)) p.compQHeld = false;
-    if (pKeys.compE && !k(pKeys.compE)) p.compEHeld = false;
 
     // Gravity
     p.vy += GRAVITY;
@@ -5038,7 +5020,7 @@ function drawVsHalf(p, cam, enemyList, stickerList, projList, pChar, pNum, stick
             if (p.compCooldown <= 0) {
                 ctx.fillStyle = 'rgba(241,196,15,0.6)';
                 ctx.font = '9px Segoe UI'; ctx.textAlign = 'center';
-                ctx.fillText(pNum === 1 ? 'Q/E' : '7/9', 0, -14);
+                ctx.fillText('🐾', 0, -14);
                 ctx.textAlign = 'left';
             }
         } else {
@@ -5050,7 +5032,7 @@ function drawVsHalf(p, cam, enemyList, stickerList, projList, pChar, pNum, stick
             if (p.compCooldown <= 0) {
                 ctx.fillStyle = 'rgba(52,152,219,0.6)';
                 ctx.font = '9px Segoe UI'; ctx.textAlign = 'center';
-                ctx.fillText(pNum === 1 ? 'Q/E' : '7/9', 0, -10);
+                ctx.fillText('🐾', 0, -10);
                 ctx.textAlign = 'left';
             }
         }
@@ -5137,12 +5119,15 @@ function drawVsHalf(p, cam, enemyList, stickerList, projList, pChar, pNum, stick
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.font = '8px Segoe UI, sans-serif';
     ctx.textAlign = 'center';
+    const vsCompHint = (pNum === 1 ? p1ActiveCompanion : p2ActiveCompanion) ? '  L1 Pet' : '';
     if (isCtrlP) {
-        ctx.fillText('Stick Move  △ Jump  ✕ ' + atkName + '  ○ Throw/' + specN + '  □ Block', halfW / 2, SCREEN_H - 4);
+        ctx.fillText('Stick Move  △ Jump  ✕ ' + atkName + '  ○ Throw/' + specN + '  □ Block' + vsCompHint, halfW / 2, SCREEN_H - 4);
     } else if (pNum === 1) {
-        ctx.fillText('WASD Move  W Jump  SPACE ' + atkName + '  CTRL Throw  SHIFT Block  G ' + specN, halfW / 2, SCREEN_H - 4);
+        const p1CompHint = p1ActiveCompanion ? '  Q Pet' : '';
+        ctx.fillText('WASD Move  W Jump  SPACE ' + atkName + '  CTRL Throw  SHIFT Block  G ' + specN + p1CompHint, halfW / 2, SCREEN_H - 4);
     } else {
-        ctx.fillText('← → Move  ↑ Jump  . ' + atkName + '  Enter Throw/' + specN + '  0 Block', halfW / 2, SCREEN_H - 4);
+        const p2CompHint = p2ActiveCompanion ? '  7 Pet' : '';
+        ctx.fillText('← → Move  ↑ Jump  . ' + atkName + '  Enter Throw/' + specN + '  0 Block' + p2CompHint, halfW / 2, SCREEN_H - 4);
     }
     ctx.textAlign = 'left';
 
@@ -6585,7 +6570,7 @@ function drawActiveCompanion() {
             ctx.fillStyle = 'rgba(241,196,15,0.6)';
             ctx.font = '9px Segoe UI';
             ctx.textAlign = 'center';
-            ctx.fillText('Q/E', 0, -14);
+            ctx.fillText('🐾', 0, -14);
             ctx.textAlign = 'left';
         }
     } else {
@@ -6600,7 +6585,7 @@ function drawActiveCompanion() {
             ctx.fillStyle = 'rgba(52,152,219,0.6)';
             ctx.font = '9px Segoe UI';
             ctx.textAlign = 'center';
-            ctx.fillText('Q/E', 0, -10);
+            ctx.fillText('🐾', 0, -10);
             ctx.textAlign = 'left';
         }
     }
@@ -6720,45 +6705,41 @@ function drawHUD() {
         const isJules = activeCompanion.type === 'jules';
         const compColor = isJules ? '#f1c40f' : '#3498db';
         const compName = isJules ? 'Jules' : 'Fishies';
-        const qAbility = isJules ? 'Claw' : 'Wave';
-        const eAbility = isJules ? 'Bark' : 'Heal';
         const timerSec = Math.ceil(activeCompanion.timer / 60);
         const cdSec = companionCooldown > 0 ? Math.ceil(companionCooldown / 60) : 0;
 
         // Background panel
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
         ctx.beginPath();
-        ctx.roundRect(SCREEN_W - 230, 58, 224, 38, 6);
+        ctx.roundRect(SCREEN_W - 200, 58, 194, 38, 6);
         ctx.fill();
 
         // Companion name + timer
         ctx.fillStyle = compColor;
         ctx.font = 'bold 12px Segoe UI, sans-serif';
-        ctx.fillText(compName + ' (' + timerSec + 's)', SCREEN_W - 224, 73);
+        ctx.fillText((isJules ? '🐕' : '🐟') + ' ' + compName + ' (' + timerSec + 's)', SCREEN_W - 194, 73);
 
-        // Ability buttons
-        const qReady = companionCooldown <= 0;
-        ctx.fillStyle = qReady ? '#2ecc71' : '#666';
+        // Special button hint
+        const specReady = companionCooldown <= 0;
+        ctx.fillStyle = specReady ? '#2ecc71' : '#666';
         ctx.font = '11px Segoe UI, sans-serif';
-        ctx.fillText('[Q] ' + qAbility, SCREEN_W - 148, 73);
-        ctx.fillStyle = qReady ? '#2ecc71' : '#666';
-        ctx.fillText('[E] ' + eAbility, SCREEN_W - 88, 73);
+        const specHint = touchControlsActive ? '🐾 Special' : gamepadConnected ? 'L1 Special' : '[Q] Special';
+        ctx.fillText(specHint, SCREEN_W - 100, 73);
 
         // Cooldown bar
         if (cdSec > 0) {
             ctx.fillStyle = '#e74c3c';
             ctx.font = '10px Segoe UI, sans-serif';
-            ctx.fillText('CD: ' + cdSec + 's', SCREEN_W - 224, 90);
-            // Visual cooldown bar
+            ctx.fillText('CD: ' + cdSec + 's', SCREEN_W - 194, 90);
             ctx.fillStyle = 'rgba(231,76,60,0.3)';
-            ctx.fillRect(SCREEN_W - 185, 82, 170, 8);
+            ctx.fillRect(SCREEN_W - 155, 82, 140, 8);
             ctx.fillStyle = '#e74c3c';
-            const cdPct = companionCooldown / 180; // max cooldown is 180 (munch)
-            ctx.fillRect(SCREEN_W - 185, 82, 170 * cdPct, 8);
+            const cdPct = companionCooldown / 300; // max cooldown is 300
+            ctx.fillRect(SCREEN_W - 155, 82, 140 * cdPct, 8);
         } else {
             ctx.fillStyle = '#2ecc71';
             ctx.font = '10px Segoe UI, sans-serif';
-            ctx.fillText('READY!', SCREEN_W - 224, 90);
+            ctx.fillText('READY!', SCREEN_W - 194, 90);
         }
     }
 
@@ -6794,11 +6775,11 @@ function drawHUD() {
     ctx.textAlign = 'center';
     const attackName = CHAR_INFO[selectedCharacter].attackName;
     const specName = CHAR_INFO[selectedCharacter].special.name;
-    const compHint = activeCompanion ? '   Q/E Companion' : '';
+    const compHint = activeCompanion ? '   Q Pet Special' : '';
     if (touchControlsActive) {
         // Don't show keyboard hints on mobile — touch buttons are on screen
     } else if (gamepadConnected) {
-        ctx.fillText('Stick Move   △ Jump   ✕ ' + attackName + '   ○ Throw   □ Block   R2 ' + specName + (activeCompanion ? '   L1/R1 Companion' : ''), SCREEN_W / 2, SCREEN_H - 9);
+        ctx.fillText('Stick Move   △ Jump   ✕ ' + attackName + '   ○ Throw   □ Block   R2 ' + specName + (activeCompanion ? '   L1 Pet Special' : ''), SCREEN_W / 2, SCREEN_H - 9);
     } else {
         ctx.fillText('← → Move   ↑/W Jump (×2)   SPACE ' + attackName + '   CTRL Throw   SHIFT Block   G ' + specName + compHint, SCREEN_W / 2, SCREEN_H - 9);
     }
@@ -7418,18 +7399,12 @@ function updatePlayer() {
         player._ammoRegenTimer = 0;
     }
 
-    // Companion abilities
+    // Companion special (screen-clear)
     if (keys['KeyQ'] && !player.compQHeld) {
-        useCompanionAbility('Q');
+        useCompanionAbility();
         player.compQHeld = true;
     }
     if (!keys['KeyQ']) player.compQHeld = false;
-
-    if (keys['KeyE'] && !player.compEHeld) {
-        useCompanionAbility('E');
-        player.compEHeld = true;
-    }
-    if (!keys['KeyE']) player.compEHeld = false;
 
     // Gravity
     player.vy += GRAVITY;
@@ -7867,81 +7842,74 @@ function updateCollectibles() {
 }
 
 // Companion abilities
-function useCompanionAbility(abilityKey) {
+function useCompanionAbility() {
     if (!activeCompanion || companionCooldown > 0) return;
 
-    if (activeCompanion.type === 'jules') {
-        if (abilityKey === 'Q') {
-            // Claw scratch — visible claw marks fly out both directions from Jules
-            // Spawn claw effects going left and right
-            for (const dir of [-1, 1]) {
-                visualEffects.push({
-                    type: 'claw',
-                    x: player.x + player.width / 2,
-                    y: player.y + player.height / 3,
-                    vx: dir * 8,
-                    timer: 30,
-                    maxTimer: 30,
-                    dir: dir,
-                });
-            }
-            // Damage enemies in a wider range (both sides)
-            const clawDmg = 3 + (upgrades.jules >= 1 ? 2 : 0); // level 1: stronger claws
-            for (const e of enemies) {
-                if (!e.alive) continue;
-                const dist = Math.abs((e.x + e.width / 2) - (player.x + player.width / 2));
-                if (dist < 200) {
-                    e.health -= clawDmg;
-                    e.hitFlash = 15;
-                    if (e.health <= 0) e.alive = false;
-                }
-            }
-            sfxClawScratch();
-            companionCooldown = 90;
-        } else if (abilityKey === 'E') {
-            // Mega bark — expanding sound wave ring that damages/kills enemies on screen
-            const barkRadius = upgrades.jules >= 2 ? SCREEN_W * 0.85 : SCREEN_W * 0.6; // level 2: wider bark
-            visualEffects.push({
-                type: 'soundwave',
-                x: player.x + player.width / 2,
-                y: player.y + player.height / 2,
-                radius: 10,
-                maxRadius: barkRadius,
-                timer: 45,
-                maxTimer: 45,
-                damaged: new Set(), // track which enemies already hit
-            });
-            sfxMegaBark();
-            companionCooldown = 150;
-        }
-    } else if (activeCompanion.type === 'fishies') {
-        if (abilityKey === 'Q') {
-            // Fishtail kick — sends a wave projectile
-            const waveDmg = 2 + (upgrades.fishies >= 1 ? 2 : 0); // level 1: stronger wave
-            projectiles.push({
-                x: player.x + (player.facing === 1 ? player.width + 5 : -10),
-                y: player.y + player.height / 2,
-                vx: player.facing * 7,
-                vy: 0,
-                spin: 0,
-                alive: true,
-                isWave: true, // special — passes through enemies
-                damage: waveDmg,
-                waveLife: 60,
-            });
-            sfxFishtailKick();
-            companionCooldown = 60;
-        } else if (abilityKey === 'E') {
-            // Fish food munch — level 2 fishies: always full heal, otherwise child=full, adult=+2
-            if (upgrades.fishies >= 2 || difficulty === 'child') {
-                player.health = player.maxHealth;
-            } else {
-                player.health = Math.min(player.maxHealth, player.health + 2);
-            }
-            sfxFishMunch();
-            companionCooldown = 180;
+    // Screen-clear: kill all on-screen enemies
+    const screenLeft = cameraX;
+    const screenRight = cameraX + SCREEN_W;
+    let killed = 0;
+    for (const e of enemies) {
+        if (!e.alive) continue;
+        if (e.x + e.width > screenLeft && e.x < screenRight) {
+            e.health = 0;
+            e.alive = false;
+            e.hitFlash = 15;
+            killed++;
+            spawnParticles(e.x + e.width / 2, e.y + e.height / 2, '#f1c40f', 8, 15, 3);
         }
     }
+
+    if (activeCompanion.type === 'jules') {
+        // Dog treat shower visual — particles rain down across the screen
+        for (let i = 0; i < 30; i++) {
+            visualEffects.push({
+                type: 'dogtreat',
+                x: player.x + player.width / 2 - SCREEN_W / 2 + Math.random() * SCREEN_W,
+                y: -20 - Math.random() * 60,
+                vx: (Math.random() - 0.5) * 2,
+                vy: 3 + Math.random() * 4,
+                timer: 60 + Math.random() * 30,
+                maxTimer: 90,
+                spin: Math.random() * Math.PI * 2,
+            });
+        }
+        // Expanding bark wave for extra visual punch
+        visualEffects.push({
+            type: 'soundwave',
+            x: player.x + player.width / 2,
+            y: player.y + player.height / 2,
+            radius: 10,
+            maxRadius: SCREEN_W * 0.8,
+            timer: 45,
+            maxTimer: 45,
+            damaged: new Set(),
+        });
+        sfxMegaBark();
+    } else if (activeCompanion.type === 'fishies') {
+        // Water wave visual — expanding blue ring + splash particles
+        visualEffects.push({
+            type: 'soundwave',
+            x: player.x + player.width / 2,
+            y: player.y + player.height / 2,
+            radius: 10,
+            maxRadius: SCREEN_W * 0.8,
+            timer: 45,
+            maxTimer: 45,
+            damaged: new Set(),
+            color: 'rgba(52,152,219,',
+        });
+        for (let i = 0; i < 20; i++) {
+            const angle = (Math.PI * 2 / 20) * i;
+            spawnParticles(
+                player.x + player.width / 2 + Math.cos(angle) * 40,
+                player.y + player.height / 2 + Math.sin(angle) * 40,
+                '#3498db', 3, 10, 2
+            );
+        }
+        sfxFishtailKick();
+    }
+    companionCooldown = 300; // 5 second cooldown (powerful ability)
 }
 
 function updateVisualEffects() {
@@ -7951,6 +7919,12 @@ function updateVisualEffects() {
 
         if (fx.type === 'claw') {
             fx.x += fx.vx;
+        }
+
+        if (fx.type === 'dogtreat') {
+            fx.x += fx.vx;
+            fx.y += fx.vy;
+            fx.spin += 0.1;
         }
 
         if (fx.type === 'soundwave') {
@@ -8016,17 +7990,34 @@ function drawVisualEffects() {
             ctx.restore();
         }
 
+        if (fx.type === 'dogtreat') {
+            const sx = fx.x - cameraX;
+            const alpha = fx.timer / fx.maxTimer;
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.translate(sx, fx.y);
+            ctx.rotate(fx.spin);
+            // Draw a bone-shaped treat
+            ctx.fillStyle = '#f5deb3';
+            ctx.fillRect(-6, -2, 12, 4);
+            ctx.beginPath(); ctx.arc(-6, 0, 3, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(6, 0, 3, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+        }
+
         if (fx.type === 'soundwave') {
             const sx = fx.x - cameraX;
             const alpha = fx.timer / fx.maxTimer;
             ctx.save();
             ctx.globalAlpha = alpha * 0.6;
 
-            // Multiple expanding rings
+            // Multiple expanding rings (support custom color for fishies wave)
+            const baseColor = fx.color || 'rgba(241,196,15,';
             for (let ring = 0; ring < 3; ring++) {
                 const r = fx.radius - ring * 15;
                 if (r < 0) continue;
-                ctx.strokeStyle = ring === 0 ? '#f1c40f' : (ring === 1 ? '#e67e22' : '#e74c3c');
+                const ringAlpha = 1 - ring * 0.3;
+                ctx.strokeStyle = baseColor + ringAlpha + ')';
                 ctx.lineWidth = 4 - ring;
                 ctx.beginPath();
                 ctx.arc(sx, fx.y, r, 0, Math.PI * 2);
@@ -8035,7 +8026,7 @@ function drawVisualEffects() {
 
             // Inner flash
             if (fx.timer > fx.maxTimer - 5) {
-                ctx.fillStyle = 'rgba(241, 196, 15, 0.3)';
+                ctx.fillStyle = baseColor + '0.3)';
                 ctx.beginPath();
                 ctx.arc(sx, fx.y, fx.radius * 0.3, 0, Math.PI * 2);
                 ctx.fill();
@@ -8205,11 +8196,9 @@ function updateBossFight() {
         player._ammoRegenTimer = 0;
     }
 
-    // Companion abilities in boss fight
-    if (keys['KeyQ'] && !player.compQHeld) { useCompanionAbility('Q'); player.compQHeld = true; }
+    // Companion special (screen-clear) in boss fight
+    if (keys['KeyQ'] && !player.compQHeld) { useCompanionAbility(); player.compQHeld = true; }
     if (!keys['KeyQ']) player.compQHeld = false;
-    if (keys['KeyE'] && !player.compEHeld) { useCompanionAbility('E'); player.compEHeld = true; }
-    if (!keys['KeyE']) player.compEHeld = false;
 
     // Gravity
     player.vy += GRAVITY;
