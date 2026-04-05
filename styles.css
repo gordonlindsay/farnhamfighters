@@ -7,44 +7,17 @@
 body {
     background: #1a1a2e;
     display: flex;
-    flex-direction: column;
     justify-content: center;
     align-items: center;
-    min-height: 100vh;
-    overflow: auto;
+    height: 100vh;
+    overflow: hidden;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    padding: 10px 0;
 }
 
 canvas {
     border: 3px solid #e94560;
     border-radius: 8px;
     image-rendering: pixelated;
-    max-width: 100vw;
-    max-height: 100vh;
-    width: auto;
-    height: auto;
-}
-
-#controls {
-    display: flex;
-    gap: 30px;
-    margin-top: 10px;
-    color: #888;
-    font-size: 12px;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-}
-
-.ctrl-col {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.ctrl-col h3 {
-    color: #e94560;
-    font-size: 13px;
-    margin-bottom: 4px;
 }
 
 /* Mobile: hide border, fill screen */

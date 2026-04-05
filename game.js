@@ -14,6 +14,28 @@ const STAGE_WIDTH = 3600;
 const SCREEN_W = canvas.width;
 const SCREEN_H = canvas.height;
 
+// --- Cached Gradients (created once, reused every frame) ---
+function makeVertGrad(c1, c2) {
+    const g = ctx.createLinearGradient(0, 0, 0, SCREEN_H);
+    g.addColorStop(0, c1); g.addColorStop(1, c2);
+    return g;
+}
+const GRAD_LEVEL_SELECT = makeVertGrad('#1a1a2e', '#0f3460');
+const GRAD_VS_SELECT = makeVertGrad('#1a0a2e', '#2e1a0a');
+const GRAD_CHAR_SELECT = makeVertGrad('#1a1a2e', '#16213e');
+const GRAD_SHOP = makeVertGrad('#1a1a3e', '#0d0d2b');
+const GRAD_LOSE_VIGNETTE = (() => {
+    const g = ctx.createRadialGradient(SCREEN_W / 2, SCREEN_H / 2, 100, SCREEN_W / 2, SCREEN_H / 2, 400);
+    g.addColorStop(0, 'rgba(150,0,0,0)'); g.addColorStop(1, 'rgba(100,0,0,0.3)');
+    return g;
+})();
+const GRAD_TITLE_UI = (() => {
+    const g = ctx.createLinearGradient(0, SCREEN_H * 0.55, 0, SCREEN_H);
+    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.4, 'rgba(0,0,0,0.7)'); g.addColorStop(1, 'rgba(0,0,0,0.9)');
+    return g;
+})();
+const GRAD_TITLE_FALLBACK = makeVertGrad('#0a0a2e', '#0a0a1e');
+
 // --- Parallax scroll factors ---
 const PARALLAX = {
     SKY: 0.0,
@@ -170,6 +192,8 @@ window.addEventListener('keydown', e => {
     // Map Shift/Ctrl variants to a single key and prevent browser defaults
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys['Shift'] = true;
     if (e.code === 'ControlLeft' || e.code === 'ControlRight') { keys['Control'] = true; e.preventDefault(); }
+    // Prevent scrolling/browser defaults for game keys
+    if (e.code.startsWith('Arrow') || e.code.startsWith('Numpad') || e.code === 'Space') e.preventDefault();
 });
 window.addEventListener('keyup', e => {
     keys[e.code] = false;
@@ -289,18 +313,105 @@ function initTouchControls() {
     `;
     document.body.appendChild(overlay);
 
+    // === VIRTUAL JOYSTICK (bottom-left) ===
+    const joystickBase = document.createElement('div');
+    joystickBase.id = 'joystickBase';
+    const joyRadius = 56; // base radius
+    const thumbRadius = 24; // thumb radius
+    const joyDeadzone = 0.2; // ignore tiny movements
+    joystickBase.style.cssText = `
+        position: absolute; left: 16px; bottom: 30px;
+        width: ${joyRadius * 2}px; height: ${joyRadius * 2}px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.08);
+        border: 2px solid rgba(255,255,255,0.25);
+        pointer-events: auto; user-select: none; -webkit-user-select: none;
+    `;
+    const joystickThumb = document.createElement('div');
+    joystickThumb.id = 'joystickThumb';
+    joystickThumb.style.cssText = `
+        position: absolute;
+        left: ${joyRadius - thumbRadius}px; top: ${joyRadius - thumbRadius}px;
+        width: ${thumbRadius * 2}px; height: ${thumbRadius * 2}px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.35);
+        border: 2px solid rgba(255,255,255,0.5);
+        pointer-events: none;
+    `;
+    joystickBase.appendChild(joystickThumb);
+    overlay.appendChild(joystickBase);
+
+    let joystickTouchId = null;
+
+    function updateJoystick(touchX, touchY) {
+        const rect = joystickBase.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        let dx = touchX - cx;
+        let dy = touchY - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const maxDist = joyRadius - 4;
+        if (dist > maxDist) { dx = (dx / dist) * maxDist; dy = (dy / dist) * maxDist; }
+        joystickThumb.style.left = (joyRadius - thumbRadius + dx) + 'px';
+        joystickThumb.style.top = (joyRadius - thumbRadius + dy) + 'px';
+        const nx = dx / maxDist; // normalised -1 to 1
+        const ny = dy / maxDist;
+        keys['KeyA'] = nx < -joyDeadzone;
+        keys['KeyD'] = nx > joyDeadzone;
+        keys['ArrowUp'] = ny < -joyDeadzone;
+        keys['ArrowDown'] = ny > joyDeadzone;
+    }
+
+    function resetJoystick() {
+        joystickThumb.style.left = (joyRadius - thumbRadius) + 'px';
+        joystickThumb.style.top = (joyRadius - thumbRadius) + 'px';
+        keys['KeyA'] = false;
+        keys['KeyD'] = false;
+        keys['ArrowUp'] = false;
+        keys['ArrowDown'] = false;
+        joystickTouchId = null;
+    }
+
+    joystickBase.addEventListener('touchstart', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const t = e.changedTouches[0];
+        joystickTouchId = t.identifier;
+        updateJoystick(t.clientX, t.clientY);
+    }, { passive: false });
+
+    // Joystick move/end listeners on document so dragging outside the base still works
+    document.addEventListener('touchmove', (e) => {
+        if (joystickTouchId === null) return;
+        for (const t of e.changedTouches) {
+            if (t.identifier === joystickTouchId) {
+                e.preventDefault();
+                updateJoystick(t.clientX, t.clientY);
+                return;
+            }
+        }
+    }, { passive: false });
+
+    document.addEventListener('touchend', (e) => {
+        for (const t of e.changedTouches) {
+            if (t.identifier === joystickTouchId) { resetJoystick(); return; }
+        }
+    }, { passive: false });
+
+    document.addEventListener('touchcancel', (e) => {
+        for (const t of e.changedTouches) {
+            if (t.identifier === joystickTouchId) { resetJoystick(); return; }
+        }
+    }, { passive: false });
+
     const buttons = [
-        // D-pad (bottom-left)
-        { id: 'tb_left',  label: '◀', key: 'KeyA',     side: 'left',  bottom: 70, left: 10,  w: 56, h: 56 },
-        { id: 'tb_right', label: '▶', key: 'KeyD',     side: 'left',  bottom: 70, left: 130, w: 56, h: 56 },
-        { id: 'tb_up',    label: '▲', key: 'ArrowUp',  side: 'left',  bottom: 135, left: 70, w: 56, h: 48 },
-        { id: 'tb_down',  label: '▼', key: 'ArrowDown',side: 'left',  bottom: 15,  left: 70, w: 56, h: 48 },
-        // Action buttons (bottom-right) — diamond layout
-        { id: 'tb_jump',    label: 'JUMP',  key: 'KeyW',  side: 'right', bottom: 130, right: 70,  w: 64, h: 64, round: true },
-        { id: 'tb_attack',  label: 'ATK',   key: 'Space', side: 'right', bottom: 70,  right: 140, w: 56, h: 56, round: true },
-        { id: 'tb_throw',   label: 'THROW', key: 'Control', side: 'right', bottom: 70,  right: 5,   w: 56, h: 56, round: true },
-        { id: 'tb_block',   label: 'BLK',   key: 'Shift',  side: 'right', bottom: 15,  right: 120, w: 50, h: 42 },
-        { id: 'tb_special', label: 'SPL',   key: 'KeyG',  side: 'right', bottom: 15,  right: 25,  w: 50, h: 42 },
+        // Action buttons (bottom-right) — controller diamond: JUMP top, ATK left, THROW/SPL right, BLK bottom
+        { id: 'tb_jump',    label: 'JUMP',  key: 'KeyW',     side: 'right', bottom: 140, right: 70,  w: 64, h: 64, round: true },
+        { id: 'tb_attack',  label: 'ATK',   key: 'Space',    side: 'right', bottom: 80,  right: 135, w: 56, h: 56, round: true },
+        { id: 'tb_throw',   label: 'SPL',   key: 'Control',  side: 'right', bottom: 80,  right: 10,  w: 56, h: 56, round: true },
+        { id: 'tb_block',   label: 'BLK',   key: 'Shift',    side: 'right', bottom: 20,  right: 70,  w: 56, h: 56, round: true },
+        // Companion abilities (bottom-left, above joystick)
+        { id: 'tb_compQ',   label: '🐕',   key: 'KeyQ',     side: 'left',  bottom: 165, left: 10,  w: 50, h: 50, round: true },
+        { id: 'tb_compE',   label: '🐟',   key: 'KeyE',     side: 'left',  bottom: 165, left: 80,  w: 50, h: 50, round: true },
         // Top bar: pause + OK + fullscreen
         { id: 'tb_pause',  label: '⏸',  key: 'Escape', side: 'right', bottom: -1, top: 6, right: 8,  w: 40, h: 32 },
         { id: 'tb_enter',  label: 'OK',  key: 'Enter',  side: 'right', bottom: -1, top: 6, right: 56, w: 48, h: 32 },
@@ -375,6 +486,49 @@ function initTouchControls() {
     }, { passive: false });
     overlay.appendChild(fsBtn);
 
+    // === SOUND/MUSIC TOGGLE BUTTONS ===
+    const sndBtn = document.createElement('div');
+    sndBtn.id = 'tb_sound';
+    sndBtn.textContent = '🔊';
+    sndBtn.style.cssText = `
+        position: absolute; top: 6px; left: 8px;
+        width: 40px; height: 32px;
+        background: rgba(255,255,255,0.12);
+        border: 2px solid rgba(255,255,255,0.35);
+        border-radius: 8px;
+        color: rgba(255,255,255,0.65);
+        font: 16px sans-serif;
+        display: flex; align-items: center; justify-content: center;
+        pointer-events: auto; user-select: none; -webkit-user-select: none;
+    `;
+    sndBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        toggleSound();
+        sndBtn.textContent = soundEnabled ? '🔊' : '🔇';
+    }, { passive: false });
+    overlay.appendChild(sndBtn);
+
+    const musBtn = document.createElement('div');
+    musBtn.id = 'tb_music';
+    musBtn.textContent = '🎵';
+    musBtn.style.cssText = `
+        position: absolute; top: 6px; left: 56px;
+        width: 40px; height: 32px;
+        background: rgba(255,255,255,0.12);
+        border: 2px solid rgba(255,255,255,0.35);
+        border-radius: 8px;
+        color: rgba(255,255,255,0.65);
+        font: 16px sans-serif;
+        display: flex; align-items: center; justify-content: center;
+        pointer-events: auto; user-select: none; -webkit-user-select: none;
+    `;
+    musBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        toggleMusic();
+        musBtn.style.opacity = musicEnabled ? '1' : '0.4';
+    }, { passive: false });
+    overlay.appendChild(musBtn);
+
     // === PORTRAIT MODE WARNING ===
     const rotateMsg = document.createElement('div');
     rotateMsg.id = 'rotatePrompt';
@@ -390,8 +544,9 @@ function initTouchControls() {
     // === RESIZE HANDLER ===
     function resizeCanvas() {
         const aspect = 960 / 540;
-        const w = window.innerWidth;
-        const h = window.innerHeight;
+        const border = 6; // 3px border on each side
+        const w = window.innerWidth - border;
+        const h = window.innerHeight - border;
         const canvasEl = document.getElementById('gameCanvas');
 
         if (h > w * 1.2) {
@@ -403,11 +558,11 @@ function initTouchControls() {
         }
 
         if (w / h > aspect) {
-            canvasEl.style.height = h + 'px';
-            canvasEl.style.width = (h * aspect) + 'px';
+            canvasEl.style.height = (h + border) + 'px';
+            canvasEl.style.width = (h * aspect + border) + 'px';
         } else {
-            canvasEl.style.width = w + 'px';
-            canvasEl.style.height = (w / aspect) + 'px';
+            canvasEl.style.width = (w + border) + 'px';
+            canvasEl.style.height = (w / aspect + border) + 'px';
         }
         canvasEl.style.display = 'block';
         canvasEl.style.margin = '0 auto';
@@ -429,26 +584,47 @@ initTouchControls();
 // Left stick: axes[0]=LR, axes[1]=UD (deadzone 0.3)
 const GAMEPAD_DEADZONE = 0.3;
 const gpPrev = {}; // track previous frame button states for edge detection
+// Separate gamepad stick state so it doesn't overwrite keyboard input
+const gpStick = { left: false, right: false, up: false, down: false };
+const gp2Stick = { left: false, right: false, up: false, down: false };
+// Track which keys were set by each gamepad (for input isolation in VS mode)
+const gp1Keys = {};
+const gp2Keys = {};
 let gamepadConnected = false;
+let gamepad2Connected = false;
 
-window.addEventListener('gamepadconnected', () => { gamepadConnected = true; });
-window.addEventListener('gamepaddisconnected', () => { gamepadConnected = false; });
+window.addEventListener('gamepadconnected', () => {
+    const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+    gamepadConnected = !!gps[0];
+    gamepad2Connected = !!gps[1];
+});
+window.addEventListener('gamepaddisconnected', () => {
+    const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+    gamepadConnected = !!gps[0];
+    gamepad2Connected = !!gps[1];
+});
 
 let gpDebugInfo = ''; // shows which buttons are pressed (toggle with Select+L1)
 let gpDebugEnabled = false;
+const gp2Prev = {}; // previous frame button states for gamepad 2
 
 function pollGamepad() {
     const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-    const gp = gamepads[0]; // use first connected controller
+    const gp = gamepads[0]; // first controller
+    const gp2 = gamepads[1]; // second controller
     if (!gp) return;
     gamepadConnected = true;
+    gamepad2Connected = !!gp2;
+
+    const inVs = (gameState === 'vs_playing' || gameState === 'vs_select');
+    const twoControllers = inVs && gp2;
 
     // Is the game on a menu screen?
     const inMenu = (gameState === 'title' || gameState === 'select' || gameState === 'level_select'
         || gameState === 'stage_complete' || gameState === 'shop' || gameState === 'won' || gameState === 'lost'
         || gameState === 'vs_select' || gameState === 'vs_results');
 
-    // Left stick — for movement
+    // --- Gamepad 1: always P1 when two controllers, else uses p1ControlType ---
     const lx = gp.axes[0] || 0;
     const ly = gp.axes[1] || 0;
     const stickLeft  = lx < -GAMEPAD_DEADZONE || (gp.buttons[14] && gp.buttons[14].pressed);
@@ -456,38 +632,47 @@ function pollGamepad() {
     const stickUp    = ly < -GAMEPAD_DEADZONE || (gp.buttons[12] && gp.buttons[12].pressed);
     const stickDown  = ly > GAMEPAD_DEADZONE  || (gp.buttons[13] && gp.buttons[13].pressed);
 
-    const inVs = (gameState === 'vs_playing' || gameState === 'vs_select');
-    if (inVs && p1ControlType === 'controller') {
-        // Gamepad controls P1 (WASD keys)
-        keys['KeyA'] = stickLeft;
-        keys['KeyD'] = stickRight;
-        keys['KeyW'] = stickUp;
-        keys['KeyS'] = stickDown;
-    } else if (inVs && p1ControlType === 'keyboard') {
-        // Gamepad controls P2 (Arrow keys)
-        keys['ArrowLeft'] = stickLeft;
-        keys['ArrowRight'] = stickRight;
-        keys['ArrowUp'] = stickUp;
-        keys['ArrowDown'] = stickDown;
-    } else {
-        keys['ArrowLeft']  = stickLeft;
-        keys['ArrowRight'] = stickRight;
-        if (inMenu) {
-            keys['ArrowUp']    = stickUp;
-            keys['ArrowDown']  = stickDown;
+    // For menus, merge gamepad stick with keyboard (don't stomp keyboard presses)
+    // Clear only when gamepad stick was previously active and is now released
+    // In VS select: GP1 stick → WASD (P1 keys) when assigned to P1, else → arrows (P2 keys)
+    if (inMenu) {
+        const gp1IsP1 = gameState === 'vs_select' && (twoControllers || p1ControlType === 'controller');
+        if (gp1IsP1) {
+            // GP1 stick controls P1's character select (WASD)
+            if (stickLeft)  keys['KeyA'] = true;
+            if (stickRight) keys['KeyD'] = true;
+            if (stickUp)    keys['KeyW'] = true;
+            if (stickDown)  keys['KeyS'] = true;
+            if (!stickLeft  && gpStick.left)  keys['KeyA'] = false;
+            if (!stickRight && gpStick.right) keys['KeyD'] = false;
+            if (!stickUp    && gpStick.up)    keys['KeyW'] = false;
+            if (!stickDown  && gpStick.down)  keys['KeyS'] = false;
+        } else {
+            // Regular menus or GP1 assigned to P2: stick → arrow keys
+            if (stickLeft)  keys['ArrowLeft'] = true;
+            if (stickRight) keys['ArrowRight'] = true;
+            if (stickUp)    keys['ArrowUp'] = true;
+            if (stickDown)  keys['ArrowDown'] = true;
+            if (!stickLeft  && gpStick.left)  keys['ArrowLeft'] = false;
+            if (!stickRight && gpStick.right) keys['ArrowRight'] = false;
+            if (!stickUp    && gpStick.up)    keys['ArrowUp'] = false;
+            if (!stickDown  && gpStick.down)  keys['ArrowDown'] = false;
         }
-        // In solo gameplay, do NOT set ArrowUp/Down from gamepad
-        // Jump is handled by Triangle (GamepadJump) only
     }
 
-    // Context-aware button mapping
-    // X=melee, O=ranged, Square=block, Triangle=jump, L1/R1=specials
+    // Store gamepad stick state separately — merged with keyboard in movement checks
+    gpStick.left = stickLeft;
+    gpStick.right = stickRight;
+    gpStick.up = stickUp;
+    gpStick.down = stickDown;
+
+    // Context-aware button mapping for gamepad 1
     const btnMap = {};
-    if (gameState === 'vs_select' && p1ControlType === 'controller') {
+    if (gameState === 'vs_select' && (twoControllers || p1ControlType === 'controller')) {
         btnMap[0] = 'Space';     // X = P1 ready (Space) in VS select
         btnMap[1] = 'Escape';    // O = back
     } else if (gameState === 'vs_select' && p1ControlType === 'keyboard') {
-        btnMap[0] = 'Numpad0';   // X = P2 ready (Numpad0) when gamepad is P2
+        btnMap[0] = 'Numpad0';   // X = P2 ready when gamepad is P2
         btnMap[1] = 'Escape';    // O = back
     } else if (gameState === 'paused' || gameState === 'won' || gameState === 'lost' || gameState === 'vs_results') {
         btnMap[0] = 'Enter';     // X = confirm / next level / rematch
@@ -495,20 +680,24 @@ function pollGamepad() {
     } else if (inMenu) {
         btnMap[0] = 'Enter';     // X = confirm on menus
         btnMap[1] = 'Escape';    // O = back on menus
+    } else if (twoControllers || (inVs && p1ControlType === 'controller')) {
+        btnMap[0] = 'Space';     // X = melee (P1)
+        btnMap[1] = 'Control';   // O = ranged (P1)
+        btnMap[2] = 'Shift';     // Square = block (P1)
     } else {
-        btnMap[0] = 'Space';     // X = melee attack (tackle/kick)
+        btnMap[0] = 'Space';     // X = melee attack
         btnMap[1] = 'Control';   // O = ranged attack
-        btnMap[2] = 'Shift';    // Square = block
+        btnMap[2] = 'Shift';     // Square = block
     }
-    btnMap[3] = 'GamepadJump';   // Triangle = jump (dedicated key to avoid conflicts)
-    btnMap[4] = 'KeyQ';          // L1 = companion ability Q (special 1)
-    btnMap[5] = 'KeyE';          // R1 = companion ability E (special 2)
+    btnMap[3] = 'GamepadJump';   // Triangle = jump
+    btnMap[4] = 'KeyQ';          // L1 = companion ability Q
+    btnMap[5] = 'KeyE';          // R1 = companion ability E
     btnMap[8] = 'KeyR';          // Share = restart
     btnMap[9] = 'Escape';        // Options = pause
     btnMap[10] = 'KeyC';         // L3 = continue from shop
     btnMap[11] = 'KeyN';         // R3 = next level
     btnMap[6] = 'KeyM';          // L2 = mute
-    btnMap[7] = 'KeyG';          // R2 = special ability
+    btnMap[7] = 'Control';        // R2 = combined ranged/special
     if (inMenu) btnMap[5] = 'Enter'; // R1 = confirm on menus too
 
     for (const [btnIdx, keyCode] of Object.entries(btnMap)) {
@@ -516,10 +705,91 @@ function pollGamepad() {
         if (btn) {
             if (btn.pressed) {
                 keys[keyCode] = true;
+                gp1Keys[keyCode] = true;
             } else if (gpPrev[btnIdx]) {
                 keys[keyCode] = false;
+                gp1Keys[keyCode] = false;
             }
             gpPrev[btnIdx] = btn.pressed;
+        }
+    }
+
+    // --- Gamepad 1: Share button toggles P1 control type in VS select ---
+    if (inVs && gp.buttons[8] && gp.buttons[8].pressed && !gpPrev['shareToggle']) {
+        p1ControlType = p1ControlType === 'controller' ? 'keyboard' : 'controller';
+        gpPrev['shareToggle'] = true;
+    }
+    if (gp.buttons[8] && !gp.buttons[8].pressed) gpPrev['shareToggle'] = false;
+
+    // --- Gamepad 2: controls P2 in VS mode (when p2ControlType is controller) ---
+    if (gp2 && inVs) {
+        const lx2 = gp2.axes[0] || 0;
+        const ly2 = gp2.axes[1] || 0;
+
+        // Options button (9) toggles P2 control type
+        if (gp2.buttons[9] && gp2.buttons[9].pressed && !gp2Prev['optToggle']) {
+            p2ControlType = p2ControlType === 'controller' ? 'keyboard' : 'controller';
+            gp2Prev['optToggle'] = true;
+        }
+        if (gp2.buttons[9] && !gp2.buttons[9].pressed) gp2Prev['optToggle'] = false;
+
+        if (p2ControlType === 'controller') {
+            gp2Stick.left  = lx2 < -GAMEPAD_DEADZONE || (gp2.buttons[14] && gp2.buttons[14].pressed);
+            gp2Stick.right = lx2 > GAMEPAD_DEADZONE  || (gp2.buttons[15] && gp2.buttons[15].pressed);
+            gp2Stick.up    = ly2 < -GAMEPAD_DEADZONE || (gp2.buttons[12] && gp2.buttons[12].pressed);
+            gp2Stick.down  = ly2 > GAMEPAD_DEADZONE  || (gp2.buttons[13] && gp2.buttons[13].pressed);
+
+            // VS select: GP2 stick controls P2 character select (arrow keys)
+            if (gameState === 'vs_select') {
+                if (gp2Stick.left)  keys['ArrowLeft'] = true;
+                if (gp2Stick.right) keys['ArrowRight'] = true;
+                if (gp2Stick.up)    keys['ArrowUp'] = true;
+                if (gp2Stick.down)  keys['ArrowDown'] = true;
+                // Clear on release (using previous frame stored before this update)
+                if (!gp2Stick.left  && gp2Prev['stickLeft'])  keys['ArrowLeft'] = false;
+                if (!gp2Stick.right && gp2Prev['stickRight']) keys['ArrowRight'] = false;
+                if (!gp2Stick.up    && gp2Prev['stickUp'])    keys['ArrowUp'] = false;
+                if (!gp2Stick.down  && gp2Prev['stickDown'])  keys['ArrowDown'] = false;
+                gp2Prev['stickLeft'] = gp2Stick.left;
+                gp2Prev['stickRight'] = gp2Stick.right;
+                gp2Prev['stickUp'] = gp2Stick.up;
+                gp2Prev['stickDown'] = gp2Stick.down;
+            }
+
+            // P2 button mapping
+            const p2BtnMap = {};
+            if (gameState === 'vs_select') {
+                p2BtnMap[0] = 'NumpadEnter'; // X = P2 ready
+                p2BtnMap[1] = 'Escape';      // O = back
+            } else {
+                p2BtnMap[0] = P2_KEYS.attack;   // X = melee
+                p2BtnMap[1] = P2_KEYS.ranged;   // O = ranged
+                p2BtnMap[2] = P2_KEYS.block;    // Square = block
+            }
+            p2BtnMap[3] = 'ArrowUp';            // Triangle = jump (ArrowUp is P2 jump)
+            p2BtnMap[4] = P2_KEYS.compQ;        // L1 = companion Q
+            p2BtnMap[5] = P2_KEYS.compE;        // R1 = companion E
+            p2BtnMap[7] = P2_KEYS.ranged;       // R2 = combined ranged/special
+
+            for (const [btnIdx, keyCode] of Object.entries(p2BtnMap)) {
+                const btn = gp2.buttons[btnIdx];
+                if (btn) {
+                    if (btn.pressed) {
+                        keys[keyCode] = true;
+                        gp2Keys[keyCode] = true;
+                    } else if (gp2Prev[btnIdx]) {
+                        keys[keyCode] = false;
+                        gp2Keys[keyCode] = false;
+                    }
+                    gp2Prev[btnIdx] = btn.pressed;
+                }
+            }
+        } else {
+            // P2 chose keyboard — clear gp2Stick so it doesn't interfere
+            gp2Stick.left = false;
+            gp2Stick.right = false;
+            gp2Stick.up = false;
+            gp2Stick.down = false;
         }
     }
 
@@ -864,13 +1134,39 @@ let cameraX = 0;
 
 // --- Game Mode ---
 let gameMode = 'solo'; // 'solo' or 'vs'
-let titleCursor = 0; // 0 = Adventure, 1 = VS Mode
+let titleCursor = 0; // 0 = Adventure, 1 = VS Mode, 2 = Daddy Mode
 let titleConfirmHeld = false;
+
+// --- Daddy Mode — rename characters based on who's playing ---
+const DADDY_MODES = ['Gordon', 'Ollie', 'Drew', 'Freddie', 'Phil'];
+let daddyModeIndex = 0; // 0 = Gordon (default)
+const DADDY_NAME_OVERRIDES = {
+    'Gordon':  {},
+    'Ollie':   { emilia: 'EVIE' },
+    'Drew':    { jessica: 'EVELYN', emilia: 'SAVANNAH' },
+    'Freddie': { heath: 'FINLEY', jessica: 'GEORGIA' },
+    'Phil':    { charlie: 'RIVER', emilia: 'REMY' },
+};
+// Hair color overrides (Drew's Jessica/Evelyn has brown hair)
+const DADDY_HAIR_OVERRIDES = {
+    'Drew': { jessica: '#6B4226' },
+};
+function getCharName(charKey) {
+    const daddy = DADDY_MODES[daddyModeIndex];
+    const overrides = DADDY_NAME_OVERRIDES[daddy];
+    return (overrides && overrides[charKey]) || CHAR_INFO[charKey].name;
+}
+function getHairColor(charKey) {
+    const daddy = DADDY_MODES[daddyModeIndex];
+    const overrides = DADDY_HAIR_OVERRIDES[daddy];
+    return (overrides && overrides[charKey]) || null;
+}
 let selectConfirmHeld = false;
 let vsConfirmHeld = false;
 let vsP2ConfirmHeld = false;
 let pauseExitHeld = false;
 let titleKeyHeld = false;
+let daddyKeyHeld = false;
 
 // --- Game State ---
 let gameState = 'title'; // 'title', 'select', 'vs_select', 'level_select', 'playing', 'stage_intro', 'stage_complete', 'shop', 'paused', 'boss', 'level_complete', 'won', 'lost', 'vs_playing', 'vs_results'
@@ -1007,6 +1303,8 @@ const LEVELS = {
     },
 };
 
+const TOTAL_LEVELS = TOTAL_LEVELS;
+
 function getCurrentLevel() {
     return LEVELS[currentLevel] || LEVELS[1];
 }
@@ -1025,6 +1323,12 @@ let pausedFromState = 'playing';
 // Game timer (for stats)
 let gameStartTime = 0;
 let gameEndTime = 0;
+let lostScreenDelay = 0;
+let lostInputHeld = false;
+let lostMessage = '';
+let diedInBoss = false;
+let wonScreenDelay = undefined;
+let wonInputHeld = false;
 let enemiesDefeated = 0;
 let stageKillCounts = [0, 0, 0, 0]; // kills per stage (1-4)
 let stageEnemyCounts = [0, 0, 0, 0]; // total enemies per stage (1-4)
@@ -1167,7 +1471,9 @@ let p1DiffKeyHeld = false;
 let p2DiffKeyHeld = false;
 let vsBackKeyHeld = false;
 let p1ControlType = 'controller'; // 'controller' or 'keyboard'
+let p2ControlType = 'controller'; // 'controller' or 'keyboard' (when 2 gamepads connected)
 let controlToggleHeld = false;
+let p2ControlToggleHeld = false;
 
 const player2 = {
     x: 80, y: 300, width: 36, height: 52,
@@ -1188,6 +1494,7 @@ let p1Score = 0;
 let p2Score = 0;
 let p1Finished = false; // reached end of level
 let p2Finished = false;
+let vsEndDelay = 0;
 let p1FinishTime = 0;
 let p2FinishTime = 0;
 let p1Enemies = [];  // separate enemy lists
@@ -1208,6 +1515,7 @@ let p1CompanionPickups = [];
 let p2CompanionPickups = [];
 let p1ActiveCompanion = null;
 let p2ActiveCompanion = null;
+let vsEnemyLasers = [];
 let p1Stage = 1;
 let p2Stage = 1;
 let vsStartTime = 0;
@@ -1399,12 +1707,13 @@ function createEnemies() {
     ];
     for (const s of flyingShoes3) {
         const hp = Math.ceil(3 * d.enemyHealthMult * lvlScale);
+        const baseY3 = 140 + Math.random() * 80;
         allEnemies.push({
-            type: 'flying_shoe', x: s.x, y: 140 + Math.random() * 80, width: 36, height: 20,
+            type: 'flying_shoe', x: s.x, y: baseY3, width: 36, height: 20,
             vx: 1.2 * d.enemySpeedMult, patrolLeft: s.pl, patrolRight: s.pr,
             health: hp, maxHealth: hp, alive: true, hitFlash: 0, facing: 1,
             shootTimer: 0, shootCooldown: Math.floor(160 * d.shootCooldownMult),
-            flyBaseY: 140 + Math.random() * 80,
+            flyBaseY: baseY3,
             shoeColor: shoeColors[Math.floor(Math.random() * shoeColors.length)],
         });
     }
@@ -1417,12 +1726,13 @@ function createEnemies() {
     ];
     for (const s of flyingShoes4) {
         const hp = Math.ceil(4 * d.enemyHealthMult * lvlScale);
+        const baseY4 = 120 + Math.random() * 60;
         allEnemies.push({
-            type: 'flying_shoe', x: s.x, y: 120 + Math.random() * 60, width: 36, height: 20,
+            type: 'flying_shoe', x: s.x, y: baseY4, width: 36, height: 20,
             vx: 1.5 * d.enemySpeedMult, patrolLeft: s.pl, patrolRight: s.pr,
             health: hp, maxHealth: hp, alive: true, hitFlash: 0, facing: 1,
             shootTimer: 0, shootCooldown: Math.floor(120 * d.shootCooldownMult),
-            flyBaseY: 120 + Math.random() * 60,
+            flyBaseY: baseY4,
             shoeColor: shoeColors[Math.floor(Math.random() * shoeColors.length)],
         });
     }
@@ -1568,14 +1878,14 @@ function spawnParticles(x, y, color, count, spread, speed) {
 }
 
 function updateParticles() {
-    for (let i = particles.length - 1; i >= 0; i--) {
+    for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         p.x += p.vx;
         p.y += p.vy;
         p.vy += p.gravity;
         p.life--;
-        if (p.life <= 0) particles.splice(i, 1);
     }
+    particles = particles.filter(p => p.life > 0);
 }
 
 function spawnEnemyDeathEffect(e) {
@@ -1948,7 +2258,7 @@ function drawHouse(x, y, index) {
         ctx.fillRect(x + 58, y - 32, 16, 4);
         // Smoke wisps
         ctx.fillStyle = 'rgba(200,200,200,0.3)';
-        const smokeT = Date.now() * 0.001;
+        const smokeT = frameTime * 0.001;
         ctx.beginPath();
         ctx.arc(x + 66 + Math.sin(smokeT + index) * 3, y - 38, 4, 0, Math.PI * 2);
         ctx.arc(x + 64 + Math.sin(smokeT + index + 1) * 4, y - 46, 3, 0, Math.PI * 2);
@@ -2145,7 +2455,7 @@ function drawLondonBuilding(x, y, index) {
         ctx.lineTo(x + 20, y - 80);
         ctx.lineTo(x + 40, y + 100);
         ctx.fill();
-        ctx.strokeStyle = '#5566778';
+        ctx.strokeStyle = '#556677';
         ctx.lineWidth = 1;
         for (let i = 0; i < 8; i++) {
             const ly = y - 60 + i * 20;
@@ -2362,7 +2672,7 @@ function drawHeath(p) {
     if (flash) ctx.globalAlpha = 0.4;
 
     ctx.save();
-    const idleBob = (Math.abs(p.vx) < 0.5 && p.onGround) ? Math.sin(Date.now() * 0.004) * 1.5 : 0;
+    const idleBob = (Math.abs(p.vx) < 0.5 && p.onGround) ? Math.sin(frameTime * 0.004) * 1.5 : 0;
     // Lean forward when running
     const runTilt = Math.abs(p.vx) > 2 ? 0.06 * p.facing : 0;
     ctx.translate(sx + p.width / 2, p.y + p.height / 2 + idleBob);
@@ -2512,9 +2822,9 @@ function drawHeath(p) {
         ctx.beginPath(); ctx.arc(22, 4, 4, 0, Math.PI * 2); ctx.fill();
         // Tackle energy burst
         ctx.fillStyle = 'rgba(231, 76, 60, 0.6)';
-        ctx.beginPath(); ctx.arc(28, 4, 8 + Math.random() * 4, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(28, 4, 8 + (Math.sin(frameTime * 0.02) + 1) * 2, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = 'rgba(241, 196, 15, 0.4)';
-        ctx.beginPath(); ctx.arc(30, 4, 5 + Math.random() * 3, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(30, 4, 5 + (Math.sin(frameTime * 0.03) + 1) * 1.5, 0, Math.PI * 2); ctx.fill();
         // Motion lines
         ctx.strokeStyle = 'rgba(255,255,255,0.4)';
         ctx.lineWidth = 1;
@@ -2548,7 +2858,7 @@ function drawCharlie(p) {
     if (flash) ctx.globalAlpha = 0.4;
 
     ctx.save();
-    const idleBob2 = (Math.abs(p.vx) < 0.5 && p.onGround) ? Math.sin(Date.now() * 0.004) * 1.5 : 0;
+    const idleBob2 = (Math.abs(p.vx) < 0.5 && p.onGround) ? Math.sin(frameTime * 0.004) * 1.5 : 0;
     const runTilt = Math.abs(p.vx) > 2 ? 0.05 * p.facing : 0;
     ctx.translate(sx + p.width / 2, p.y + p.height / 2 + idleBob2);
     ctx.rotate(runTilt);
@@ -2740,7 +3050,7 @@ function drawRupert(p) {
     const flash = p.invincible > 0 && Math.floor(p.invincible / 4) % 2 === 0;
     if (flash) ctx.globalAlpha = 0.4;
     ctx.save();
-    const idleBob = (Math.abs(p.vx) < 0.5 && p.onGround) ? Math.sin(Date.now() * 0.004) * 1.5 : 0;
+    const idleBob = (Math.abs(p.vx) < 0.5 && p.onGround) ? Math.sin(frameTime * 0.004) * 1.5 : 0;
     const runTilt = Math.abs(p.vx) > 2 ? 0.06 * p.facing : 0;
     ctx.translate(sx + p.width / 2, p.y + p.height / 2 + idleBob);
     ctx.rotate(runTilt);
@@ -2816,9 +3126,9 @@ function drawRupert(p) {
         ctx.fillStyle = '#FFD5B8'; ctx.beginPath(); ctx.arc(0, 12, 3, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
         ctx.fillStyle = 'rgba(231,76,60,0.6)';
-        ctx.beginPath(); ctx.arc(14, 36, 9 + Math.random() * 4, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(14, 36, 9 + (Math.sin(frameTime * 0.02) + 1) * 2, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = 'rgba(255,255,255,0.4)';
-        ctx.beginPath(); ctx.arc(14, 36, 5 + Math.random() * 3, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(14, 36, 5 + (Math.sin(frameTime * 0.03) + 1) * 1.5, 0, Math.PI * 2); ctx.fill();
     } else {
         ctx.save(); ctx.translate(13, 2); ctx.rotate(-armSwing * 0.04);
         ctx.fillStyle = '#e74c3c'; ctx.fillRect(-3, 0, 7, 14);
@@ -2836,7 +3146,7 @@ function drawJessica(p) {
     const flash = p.invincible > 0 && Math.floor(p.invincible / 4) % 2 === 0;
     if (flash) ctx.globalAlpha = 0.4;
     ctx.save();
-    const idleBob = (Math.abs(p.vx) < 0.5 && p.onGround) ? Math.sin(Date.now() * 0.004) * 1.5 : 0;
+    const idleBob = (Math.abs(p.vx) < 0.5 && p.onGround) ? Math.sin(frameTime * 0.004) * 1.5 : 0;
     const runTilt = Math.abs(p.vx) > 2 ? 0.06 * p.facing : 0;
     ctx.translate(sx + p.width / 2, p.y + p.height / 2 + idleBob);
     ctx.rotate(runTilt);
@@ -2920,9 +3230,9 @@ function drawJessica(p) {
         ctx.fillStyle = '#FFD5B8'; ctx.beginPath(); ctx.arc(0, 12, 3, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
         ctx.fillStyle = 'rgba(241,196,15,0.65)';
-        ctx.beginPath(); ctx.arc(14, 36, 9 + Math.random() * 4, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(14, 36, 9 + (Math.sin(frameTime * 0.02) + 1) * 2, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = 'rgba(255,255,255,0.45)';
-        ctx.beginPath(); ctx.arc(14, 36, 5 + Math.random() * 3, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(14, 36, 5 + (Math.sin(frameTime * 0.03) + 1) * 1.5, 0, Math.PI * 2); ctx.fill();
     } else {
         ctx.save(); ctx.translate(13, 2); ctx.rotate(-armSwing * 0.04);
         ctx.fillStyle = '#f1c40f'; ctx.fillRect(-3, 0, 7, 14);
@@ -2940,14 +3250,14 @@ function drawEmilia(p) {
     const flash = p.invincible > 0 && Math.floor(p.invincible / 4) % 2 === 0;
     if (flash) ctx.globalAlpha = 0.4;
     ctx.save();
-    const idleBob = (Math.abs(p.vx) < 0.5 && p.onGround) ? Math.sin(Date.now() * 0.004) * 1.5 : 0;
+    const idleBob = (Math.abs(p.vx) < 0.5 && p.onGround) ? Math.sin(frameTime * 0.004) * 1.5 : 0;
     const runTilt = Math.abs(p.vx) > 2 ? 0.05 * p.facing : 0;
     ctx.translate(sx + p.width / 2, p.y + p.height / 2 + idleBob);
     ctx.rotate(runTilt);
     if (p.facing === -1) ctx.scale(-1, 1);
     const armSwing = Math.sin(p.animFrame * 0.3) * 6;
     const legSwing = Math.sin(p.animFrame * 0.3) * 5;
-    const tutuFlutter = Math.sin(Date.now() * 0.006) * 2;
+    const tutuFlutter = Math.sin(frameTime * 0.006) * 2;
     const spinAngle = p.isAttacking ? (p.attackTimer / p.attackDuration) * Math.PI * 4 : 0;
     ctx.fillStyle = 'rgba(0,0,0,0.15)';
     ctx.beginPath(); ctx.ellipse(0, 40, 14, 4, 0, 0, Math.PI * 2); ctx.fill();
@@ -3054,11 +3364,11 @@ function drawEmilia(p) {
         for (let s = 0; s < 6; s++) {
             const a = (s / 6) * Math.PI * 2 + spinAngle;
             const d = 18 + Math.sin(spinAngle * 2 + s) * 4;
-            ctx.fillStyle = `rgba(255,105,180,${0.5 + Math.random() * 0.5})`;
-            ctx.beginPath(); ctx.arc(Math.cos(a) * d, Math.sin(a) * d - 6, 2 + Math.random() * 2, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = `rgba(255,105,180,${0.5 + (Math.sin(frameTime * 0.015 + s * 1.5) + 1) * 0.25})`;
+            ctx.beginPath(); ctx.arc(Math.cos(a) * d, Math.sin(a) * d - 6, 2 + (Math.sin(frameTime * 0.02 + s) + 1), 0, Math.PI * 2); ctx.fill();
         }
         ctx.fillStyle = 'rgba(255,182,193,0.4)';
-        ctx.beginPath(); ctx.arc(0, -6, 20 + Math.random() * 5, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(0, -6, 20 + (Math.sin(frameTime * 0.015) + 1) * 2.5, 0, Math.PI * 2); ctx.fill();
     } else {
         ctx.save(); ctx.translate(13, 2); ctx.rotate(-armSwing * 0.04);
         ctx.fillStyle = '#ff69b4'; ctx.fillRect(-3, 0, 7, 14);
@@ -3074,7 +3384,7 @@ function drawEmilia(p) {
 // --- MUMMY — Glamorous mum with blonde hair, nice clothes ---
 function drawMummy(p) {
     const flash = p.invincible > 0 && Math.floor(p.invincible / 4) % 2 === 0;
-    if (flash) return;
+    if (flash) ctx.globalAlpha = 0.4;
     ctx.save();
     const sx = p.x - cameraX;
     ctx.translate(sx + p.width / 2, p.y + p.height);
@@ -3112,7 +3422,7 @@ function drawMummy(p) {
 
     // Arms — slim
     ctx.fillStyle = '#fce4c8'; // skin tone
-    const armSwing = p.isAttacking ? 6 : Math.sin(Date.now() * 0.005) * 2;
+    const armSwing = p.isAttacking ? 6 : Math.sin(frameTime * 0.005) * 2;
     // Sleeve on back arm
     ctx.fillStyle = '#d4a0a0';
     ctx.fillRect(-13, -34 + armSwing, 4, 5);
@@ -3206,12 +3516,13 @@ function drawMummy(p) {
     ctx.beginPath(); ctx.arc(0, -34, 2, 0, Math.PI * 2); ctx.fill();
 
     ctx.restore();
+    ctx.globalAlpha = 1;
 }
 
 // --- DADDY — Muscular dad, grey hair, jeans, nice watch ---
 function drawDaddy(p) {
     const flash = p.invincible > 0 && Math.floor(p.invincible / 4) % 2 === 0;
-    if (flash) return;
+    if (flash) ctx.globalAlpha = 0.4;
     ctx.save();
     const sx = p.x - cameraX;
     ctx.translate(sx + p.width / 2, p.y + p.height);
@@ -3246,7 +3557,7 @@ function drawDaddy(p) {
     ctx.closePath(); ctx.fill();
 
     // Arms — muscular (thicker than other characters)
-    const armSwing = p.isAttacking ? 8 : Math.sin(Date.now() * 0.004) * 2;
+    const armSwing = p.isAttacking ? 8 : Math.sin(frameTime * 0.004) * 2;
     // Back arm — sleeve then muscular forearm
     ctx.fillStyle = '#4a6741';
     ctx.fillRect(-17, -38 + armSwing, 6, 8);
@@ -3325,6 +3636,7 @@ function drawDaddy(p) {
     ctx.beginPath(); ctx.moveTo(-3, -45); ctx.quadraticCurveTo(0, -43, 3, -45); ctx.stroke();
 
     ctx.restore();
+    ctx.globalAlpha = 1;
 }
 
 function drawProjectiles() {
@@ -3484,10 +3796,7 @@ function drawProjectiles() {
 
 // ===== LEVEL SELECT SCREEN =====
 function drawLevelSelect() {
-    const grad = ctx.createLinearGradient(0, 0, 0, SCREEN_H);
-    grad.addColorStop(0, '#1a1a2e');
-    grad.addColorStop(1, '#0f3460');
-    ctx.fillStyle = grad;
+    ctx.fillStyle = GRAD_LEVEL_SELECT;
     ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
 
     ctx.textAlign = 'center';
@@ -3498,7 +3807,7 @@ function drawLevelSelect() {
     ctx.fillText('SELECT LEVEL', SCREEN_W / 2, 60);
 
     // Level cards
-    const totalLevels = Object.keys(LEVELS).length;
+    const totalLevels = TOTAL_LEVELS;
     const cardW = 150;
     const cardH = 120;
     const gap = 20;
@@ -3553,11 +3862,13 @@ function drawLevelSelect() {
     }
 
     // Instructions
-    const flashAlpha = 0.5 + Math.sin(Date.now() * 0.004) * 0.5;
+    const flashAlpha = 0.5 + Math.sin(frameTime * 0.004) * 0.5;
     ctx.globalAlpha = flashAlpha;
     ctx.fillStyle = '#f1c40f';
     ctx.font = 'bold 16px Segoe UI, sans-serif';
-    if (gamepadConnected) {
+    if (touchControlsActive) {
+        ctx.fillText('Tap left / right to choose', SCREEN_W / 2, SCREEN_H - 60);
+    } else if (gamepadConnected) {
         ctx.fillText('D-pad ← → to choose — ✕ to start', SCREEN_W / 2, SCREEN_H - 60);
     } else {
         ctx.fillText('← → to choose — ENTER to start', SCREEN_W / 2, SCREEN_H - 60);
@@ -3573,10 +3884,7 @@ function drawLevelSelect() {
 
 // ===== VS MODE — CHARACTER SELECT =====
 function drawVsSelect() {
-    const grad = ctx.createLinearGradient(0, 0, 0, SCREEN_H);
-    grad.addColorStop(0, '#1a0a2e');
-    grad.addColorStop(1, '#2e1a0a');
-    ctx.fillStyle = grad;
+    ctx.fillStyle = GRAD_VS_SELECT;
     ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
 
     ctx.textAlign = 'center';
@@ -3591,29 +3899,43 @@ function drawVsSelect() {
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(SCREEN_W / 2, 45); ctx.lineTo(SCREEN_W / 2, SCREEN_H - 30); ctx.stroke();
 
-    // --- P1 Control type selector (top centre) ---
+    // --- Per-player control type (shown above each player side) ---
     const ctrlY = 48;
-    const isCtrl = p1ControlType === 'controller';
-    const isKbd = !isCtrl;
-    ctx.strokeStyle = isCtrl ? '#3498db' : '#555';
-    ctx.lineWidth = isCtrl ? 2 : 1;
-    ctx.fillStyle = isCtrl ? 'rgba(52,152,219,0.2)' : 'rgba(255,255,255,0.04)';
-    ctx.beginPath(); ctx.roundRect(SCREEN_W / 2 - 108, ctrlY, 100, 26, 5); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = isCtrl ? '#3498db' : '#666';
-    ctx.font = '12px Segoe UI, sans-serif';
-    ctx.fillText('🎮 Controller', SCREEN_W / 2 - 58, ctrlY + 18);
+    const dualPads = gamepadConnected && gamepad2Connected;
+    const p1IsCtrl = p1ControlType === 'controller';
+    const p2IsCtrl = dualPads ? p2ControlType === 'controller' : !p1IsCtrl;
 
-    ctx.strokeStyle = isKbd ? '#3498db' : '#555';
-    ctx.lineWidth = isKbd ? 2 : 1;
-    ctx.fillStyle = isKbd ? 'rgba(52,152,219,0.2)' : 'rgba(255,255,255,0.04)';
-    ctx.beginPath(); ctx.roundRect(SCREEN_W / 2 + 8, ctrlY, 100, 26, 5); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = isKbd ? '#3498db' : '#666';
-    ctx.font = '12px Segoe UI, sans-serif';
-    ctx.fillText('⌨️ Keyboard', SCREEN_W / 2 + 58, ctrlY + 18);
+    // P1 control type indicator
+    const p1cx = SCREEN_W / 4;
+    const p1Icon = p1IsCtrl ? '🎮' : '⌨️';
+    const p1Label = p1IsCtrl ? 'Controller' : 'Keyboard';
+    ctx.fillStyle = 'rgba(52,152,219,0.15)';
+    ctx.strokeStyle = '#3498db';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(p1cx - 55, ctrlY, 110, 22, 5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#3498db';
+    ctx.font = '11px Segoe UI, sans-serif';
+    ctx.fillText(p1Icon + ' ' + p1Label, p1cx, ctrlY + 16);
+    ctx.fillStyle = '#666';
+    ctx.font = '8px Segoe UI, sans-serif';
+    ctx.fillText('TAB to swap', p1cx, ctrlY + 32);
 
-    ctx.fillStyle = '#777';
-    ctx.font = '9px Segoe UI, sans-serif';
-    ctx.fillText(gamepadConnected ? 'SHARE to swap' : 'TAB to swap', SCREEN_W / 2, ctrlY + 38);
+    // P2 control type indicator
+    const p2cx = SCREEN_W * 3 / 4;
+    const p2Icon = p2IsCtrl ? '🎮' : '⌨️';
+    const p2Label = p2IsCtrl ? 'Controller' : 'Keyboard';
+    ctx.fillStyle = 'rgba(231,76,60,0.15)';
+    ctx.strokeStyle = '#e74c3c';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(p2cx - 55, ctrlY, 110, 22, 5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#e74c3c';
+    ctx.font = '11px Segoe UI, sans-serif';
+    ctx.fillText(p2Icon + ' ' + p2Label, p2cx, ctrlY + 16);
+    if (dualPads) {
+        ctx.fillStyle = '#666';
+        ctx.font = '8px Segoe UI, sans-serif';
+        ctx.fillText('OPTIONS to swap', p2cx, ctrlY + 32);
+    }
 
     // --- Draw a player side ---
     function drawSide(px, pChar, pDiff, pReady, pNum) {
@@ -3623,7 +3945,8 @@ function drawVsSelect() {
         // Player label + control icon
         ctx.fillStyle = color;
         ctx.font = 'bold 16px Segoe UI, sans-serif';
-        const pIcon = (pNum === 1) === isCtrl ? '🎮' : '⌨️';
+        const pCtrl = pNum === 1 ? p1IsCtrl : p2IsCtrl;
+        const pIcon = pCtrl ? '🎮' : '⌨️';
         ctx.fillText('P' + pNum + ' ' + pIcon, px, 102);
 
         // Character card
@@ -3644,13 +3967,13 @@ function drawVsSelect() {
         // Character name + ability
         ctx.fillStyle = '#f1c40f';
         ctx.font = 'bold 20px Segoe UI, sans-serif';
-        ctx.fillText(info.name, px, cardY + 28);
+        ctx.fillText(getCharName(pChar), px, cardY + 28);
         ctx.fillStyle = '#e94560';
         ctx.font = '12px Segoe UI, sans-serif';
         ctx.fillText(info.ability, px, cardY + 46);
 
         // Mini character sprite
-        drawMiniCharacter(px - 18, cardY + 55, pChar);
+        drawMiniCharacter(px - 18, cardY + 75, pChar);
 
         // Projectile icon + quote
         ctx.font = '16px Segoe UI, sans-serif';
@@ -3689,10 +4012,10 @@ function drawVsSelect() {
             ctx.fillStyle = '#888';
             ctx.font = '11px Segoe UI, sans-serif';
             if (pNum === 1) {
-                const txt = isCtrl ? '← → char  ↑↓ diff  ✕ ready' : 'A/D char  W/S diff  SPACE ready';
+                const txt = p1IsCtrl ? '← → char  ↑↓ diff  ✕ ready' : 'A/D char  W/S diff  SPACE ready';
                 ctx.fillText(txt, px, hintY);
             } else {
-                const txt = isCtrl ? '← → char  ↑↓ diff  ENTER ready' : '← → char  ↑↓ diff  ENTER ready';
+                const txt = p2IsCtrl ? '← → char  ↑↓ diff  ✕ ready' : '← → char  ↑↓ diff  ENTER ready';
                 ctx.fillText(txt, px, hintY);
             }
         }
@@ -3703,13 +4026,13 @@ function drawVsSelect() {
 
     // Bottom prompt
     if (vsP1Ready && vsP2Ready) {
-        const flash = 0.5 + Math.sin(Date.now() * 0.006) * 0.5;
+        const flash = 0.5 + Math.sin(frameTime * 0.006) * 0.5;
         ctx.globalAlpha = flash;
         ctx.fillStyle = '#f1c40f';
         ctx.font = 'bold 18px Segoe UI, sans-serif';
-        ctx.fillText(gamepadConnected ? '✕ TO FIGHT!' : 'ENTER TO FIGHT!', SCREEN_W / 2, SCREEN_H - 14);
+        ctx.fillText(touchControlsActive ? 'TAP TO FIGHT!' : gamepadConnected ? '✕ TO FIGHT!' : 'ENTER TO FIGHT!', SCREEN_W / 2, SCREEN_H - 14);
         ctx.globalAlpha = 1;
-    } else {
+    } else if (!touchControlsActive) {
         ctx.fillStyle = '#555';
         ctx.font = '10px Segoe UI, sans-serif';
         ctx.fillText(gamepadConnected ? '○ to go back' : 'ESC to go back', SCREEN_W / 2, SCREEN_H - 14);
@@ -3970,13 +4293,12 @@ function initVsMode() {
 
     cameraX = 0; cameraX2 = 0;
     p1Score = 0; p2Score = 0;
-    p1Finished = false; p2Finished = false;
+    p1Finished = false; p2Finished = false; vsEndDelay = 0;
     p1FinishTime = 0; p2FinishTime = 0;
     p1StickersCollected = 0; p2StickersCollected = 0;
     p1EnemiesDefeated = 0; p2EnemiesDefeated = 0;
-    // Random stage for VS mode (1-4)
-    const vsRandomStage = Math.floor(Math.random() * 4) + 1;
-    p1Stage = vsRandomStage; p2Stage = vsRandomStage;
+    // VS mode always starts at stage 1
+    p1Stage = 1; p2Stage = 1;
     p1Projectiles = []; p2Projectiles = [];
     vsStartTime = Date.now();
     vsResultsShown = false;
@@ -3995,20 +4317,35 @@ function initVsMode() {
     p2CompanionPickups = createCompanionPickups();
     p1ActiveCompanion = null;
     p2ActiveCompanion = null;
+    vsEnemyLasers = [];
 
     // Reset upgrades for VS mode (no shop upgrades in VS)
     resetUpgrades();
 }
 
 function updateVsPlayer(p, pKeys, isP2) {
+    // Determine input source — only accept the right type for this player
+    const ctrlType = isP2 ? (gamepad2Connected ? p2ControlType : (p1ControlType === 'controller' ? 'keyboard' : 'controller')) : p1ControlType;
+    const stick = isP2 ? gp2Stick : gpStick;
+    const gpk = isP2 ? gp2Keys : gp1Keys;
+    const usePad = ctrlType === 'controller';
+
+    // Helper: check a key only from the allowed input source
+    // Controller players only respond to gamepad buttons (tracked in gp1Keys/gp2Keys) + stick
+    // Keyboard players only respond to keyboard (keys minus gamepad-set keys)
+    function k(keyCode) {
+        if (usePad) return !!gpk[keyCode]; // controller: only accept gamepad-pressed keys
+        return keys[keyCode]; // keyboard: accept all keys
+    }
+
     // Movement
     p.vx = 0;
-    if (keys[pKeys.left]) p.vx = -p.speed;
-    else if (keys[pKeys.right]) p.vx = p.speed;
+    if (k(pKeys.left) || (usePad && stick.left)) p.vx = -p.speed;
+    else if (k(pKeys.right) || (usePad && stick.right)) p.vx = p.speed;
     if (p.vx !== 0) p.facing = p.vx > 0 ? 1 : -1;
 
     // Jump (supports secondary jump key for gamepad)
-    const jumpPressed = keys[pKeys.jump] || (pKeys.jump2 && keys[pKeys.jump2]);
+    const jumpPressed = k(pKeys.jump) || (pKeys.jump2 && k(pKeys.jump2));
     if (jumpPressed && !p.jumpKeyHeld && p.jumps < p.maxJumps) {
         p.vy = p.jumpForce;
         p.jumps++;
@@ -4018,7 +4355,7 @@ function updateVsPlayer(p, pKeys, isP2) {
     if (!jumpPressed) p.jumpKeyHeld = false;
 
     // Melee attack (unlimited)
-    if (keys[pKeys.attack] && !p.isAttacking && p.attackCooldown <= 0) {
+    if (k(pKeys.attack) && !p.isAttacking && p.attackCooldown <= 0) {
         p.isAttacking = true;
         p.attackTimer = p.attackDuration;
         p.attackCooldown = 25;
@@ -4052,7 +4389,7 @@ function updateVsPlayer(p, pKeys, isP2) {
     if (p.attackCooldown > 0) p.attackCooldown--;
 
     // Block
-    if (keys[pKeys.block] && !p.isAttacking) {
+    if (k(pKeys.block) && !p.isAttacking) {
         p.isBlocking = true;
         p.blockTimer++;
         p.vx *= 0.3;
@@ -4061,47 +4398,96 @@ function updateVsPlayer(p, pKeys, isP2) {
         p.blockTimer = 0;
     }
 
-    // Ranged attack (limited — 3 per stage)
+    // Combined ranged/special — special takes priority when ready
     const rangedKey = pKeys.ranged;
-    if (keys[rangedKey] && !p._rangedHeld && p.rangedAmmo > 0 && !p.isAttacking) {
-        p.rangedAmmo--;
+    const charType = isP2 ? p2Character : p1Character;
+    const enemyList = isP2 ? p2Enemies : p1Enemies;
+    const projList = isP2 ? p2Projectiles : p1Projectiles;
+    if (k(rangedKey) && !p._rangedHeld && !p.isAttacking) {
+        if (p.specialCooldown <= 0 && p.specialActive <= 0) {
+            // Fire special ability
+            const spec = CHAR_INFO[charType].special;
+            p.specialActive = spec.duration;
+            p.specialCooldown = spec.cooldown;
+            p.specialType = charType;
+            sfxSpecial();
+            if (charType === 'heath') { p.vx = p.facing * 14; p.invincible = spec.duration + 5; }
+            else if (charType === 'charlie') { p.vx = p.facing * 16; p.invincible = spec.duration + 5; }
+            else if (charType === 'rupert') { p.vy = -10; p.invincible = spec.duration + 5; }
+            else if (charType === 'emilia') { p.invincible = spec.duration + 5; p.vy = -6; }
+            else if (charType === 'mummy') { p.vy = -8; p.invincible = spec.duration + 5; }
+            else if (charType === 'daddy') { p.invincible = spec.duration + 5; }
+            spawnParticles(p.x + p.width / 2, p.y + p.height / 2, CHAR_INFO[charType].color, 16, 20, 4);
+            p._specialHeld = true;
+        } else if (p.rangedAmmo > 0) {
+            // Fire ranged throw
+            p.rangedAmmo--;
+            projList.push({
+                x: p.x + (p.facing === 1 ? p.width + 5 : -10),
+                y: p.y + p.height / 2,
+                vx: p.facing * 10,
+                vy: -1.5,
+                spin: 0,
+                alive: true,
+                damage: 3,
+                isRanged: true,
+                charType: charType,
+            });
+        }
         p._rangedHeld = true;
-        const projList = isP2 ? p2Projectiles : p1Projectiles;
-        const charType = isP2 ? p2Character : p1Character;
-        projList.push({
-            x: p.x + (p.facing === 1 ? p.width + 5 : -10),
-            y: p.y + p.height / 2,
-            vx: p.facing * 10,
-            vy: -1.5,
-            spin: 0,
-            alive: true,
-            damage: 3,
-            isRanged: true,
-            charType: charType,
-        });
     }
-    if (!keys[rangedKey]) p._rangedHeld = false;
+    if (!k(rangedKey)) { p._rangedHeld = false; p._specialHeld = false; }
+    updateSpecialAbility(p, charType, enemyList, projList);
 
-    // Special ability (G / Numpad+ / R2)
-    if (pKeys.special) {
-        const charType = isP2 ? p2Character : p1Character;
-        const enemyList = isP2 ? p2Enemies : p1Enemies;
-        const projList = isP2 ? p2Projectiles : p1Projectiles;
-        activateSpecialAbility(p, pKeys.special, charType);
-        updateSpecialAbility(p, charType, enemyList, projList);
+    // Companion abilities (L1/R1) — VS-aware version
+    const vsComp = isP2 ? p2ActiveCompanion : p1ActiveCompanion;
+    if (!p.compCooldown) p.compCooldown = 0;
+    if (p.compCooldown > 0) p.compCooldown--;
+    if (vsComp && p.compCooldown <= 0) {
+        const vsEnemies = isP2 ? p2Enemies : p1Enemies;
+        const vsProj = isP2 ? p2Projectiles : p1Projectiles;
+        if (pKeys.compQ && k(pKeys.compQ) && !p.compQHeld) {
+            if (vsComp.type === 'jules') {
+                for (const dir of [-1, 1]) {
+                    visualEffects.push({ type: 'claw', x: p.x + p.width / 2, y: p.y + p.height / 3, vx: dir * 8, timer: 30, maxTimer: 30, dir: dir });
+                }
+                for (const e of vsEnemies) {
+                    if (!e.alive) continue;
+                    if (Math.abs((e.x + e.width / 2) - (p.x + p.width / 2)) < 200) {
+                        e.health -= 3; e.hitFlash = 15;
+                        if (e.health <= 0) e.alive = false;
+                    }
+                }
+                sfxClawScratch();
+                p.compCooldown = 90;
+            } else if (vsComp.type === 'fishies') {
+                vsProj.push({ x: p.x + (p.facing === 1 ? p.width + 5 : -10), y: p.y + p.height / 2, vx: p.facing * 7, vy: 0, spin: 0, alive: true, isWave: true, damage: 2, waveLife: 60 });
+                sfxFishtailKick();
+                p.compCooldown = 90;
+            }
+            p.compQHeld = true;
+        }
+        if (pKeys.compE && k(pKeys.compE) && !p.compEHeld) {
+            if (vsComp.type === 'jules') {
+                visualEffects.push({ type: 'soundwave', x: p.x + p.width / 2, y: p.y + p.height / 2, radius: 10, maxRadius: SCREEN_W * 0.6, timer: 45, maxTimer: 45, damaged: new Set(), vsEnemies: vsEnemies });
+                sfxMegaBark();
+                p.compCooldown = 150;
+            } else if (vsComp.type === 'fishies') {
+                for (const e of vsEnemies) {
+                    if (!e.alive) continue;
+                    if (Math.abs((e.x + e.width / 2) - (p.x + p.width / 2)) < 150) {
+                        e.health -= 4; e.hitFlash = 15;
+                        if (e.health <= 0) e.alive = false;
+                    }
+                }
+                sfxFishMunch();
+                p.compCooldown = 120;
+            }
+            p.compEHeld = true;
+        }
     }
-
-    // Companion abilities (L1/R1)
-    if (pKeys.compQ && keys[pKeys.compQ] && !p.compQHeld) {
-        useCompanionAbility('Q');
-        p.compQHeld = true;
-    }
-    if (pKeys.compQ && !keys[pKeys.compQ]) p.compQHeld = false;
-    if (pKeys.compE && keys[pKeys.compE] && !p.compEHeld) {
-        useCompanionAbility('E');
-        p.compEHeld = true;
-    }
-    if (pKeys.compE && !keys[pKeys.compE]) p.compEHeld = false;
+    if (pKeys.compQ && !k(pKeys.compQ)) p.compQHeld = false;
+    if (pKeys.compE && !k(pKeys.compE)) p.compEHeld = false;
 
     // Gravity
     p.vy += GRAVITY;
@@ -4172,26 +4558,56 @@ function updateVsEnemies(enemyList, p, projList, isP2) {
                     e.health -= 2;
                     e.hitFlash = 10;
                     e._hitThisSwing = true;
-                    if (e.health <= 0) { e.alive = false; defeated++; }
+                    if (e.health <= 0) { e.alive = false; defeated++; spawnEnemyDeathEffect(e); sfxEnemyDeath(); }
                 }
             }
         } else {
             e._hitThisSwing = false;
         }
 
+        // Enemy AI — shooting at player (stage 2+ enemies)
+        const distToP = Math.abs((e.x + e.width / 2) - (p.x + p.width / 2));
+        if (e.type === 'alien_giant' || e.type === 'alien_small' || e.type === 'laser_line') {
+            if (distToP < 300) e.facing = p.x > e.x ? 1 : -1;
+            e.shootTimer++;
+            if (e.shootTimer >= e.shootCooldown && distToP < 300) {
+                const origin = { x: e.x + (e.facing === 1 ? e.width + 5 : -5), y: e.y + e.height / 2 };
+                const dx = (p.x + p.width / 2) - origin.x;
+                const dy = (p.y + p.height / 2) - origin.y;
+                const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                const spd = e.type === 'laser_line' ? 4 : 3;
+                if (!vsEnemyLasers) vsEnemyLasers = [];
+                vsEnemyLasers.push({ x: origin.x, y: origin.y, vx: dx / dist * spd, vy: dy / dist * spd, color: e.type === 'alien_giant' ? '#2ecc71' : '#e74c3c', owner: isP2 ? 2 : 1 });
+                e.shootTimer = 0;
+                sfxLaser();
+            }
+        }
+        if (e.type === 'flying_shoe') {
+            e.y = e.flyBaseY + Math.sin(frameTime * 0.003 + e.x * 0.01) * 25;
+            if (distToP < 400) e.facing = p.x > e.x ? 1 : -1;
+            e.shootTimer++;
+            if (e.shootTimer >= e.shootCooldown && distToP < 350) {
+                if (!vsEnemyLasers) vsEnemyLasers = [];
+                vsEnemyLasers.push({ x: e.x + e.width / 2, y: e.y + e.height, vx: e.facing * 0.3, vy: 2.5, color: 'poo', isPoo: true, pooGravity: 0.12, owner: isP2 ? 2 : 1 });
+                e.shootTimer = 0;
+            }
+        }
+
         // Enemy damage to player
         if (p.invincible <= 0 && rectCollision(p, e)) {
             if (!p.isBlocking) p.health--;
             p.invincible = p.isBlocking ? 30 : 60;
+            sfxPlayerHurt();
         }
     }
 
     // Ranged projectile updates
-    for (let i = projList.length - 1; i >= 0; i--) {
+    for (let i = 0; i < projList.length; i++) {
         const pr = projList[i];
         if (pr.isHoming) updateHomingProjectile(pr);
         pr.x += pr.vx; pr.y += pr.vy;
-        if (!pr.isHoming) pr.vy += 0.15;
+        if (!pr.isHoming && !pr.isWave) pr.vy += 0.15;
+        if (pr.isWave) { pr.waveLife--; if (pr.waveLife <= 0) pr.alive = false; }
         pr.spin += 0.3;
         // Hit enemies
         for (const e of enemyList) {
@@ -4199,14 +4615,17 @@ function updateVsEnemies(enemyList, p, projList, isP2) {
             if (rectCollision({ x: pr.x - 8, y: pr.y - 8, width: 16, height: 16 }, e)) {
                 e.health -= pr.damage;
                 e.hitFlash = 10;
-                if (e.health <= 0) { e.alive = false; defeated++; }
-                pr.alive = false;
-                break;
+                if (e.health <= 0) { e.alive = false; defeated++; spawnEnemyDeathEffect(e); sfxEnemyDeath(); }
+                if (!pr.isWave) { pr.alive = false; break; } // waves pass through
             }
         }
         if (!pr.alive || pr.x < -50 || pr.x > LEVEL_WIDTH + 50 || pr.y > SCREEN_H + 50) {
-            projList.splice(i, 1);
+            pr._remove = true;
         }
+    }
+    // Remove dead projectiles (modifies array in place since projList is a reference)
+    for (let i = projList.length - 1; i >= 0; i--) {
+        if (projList[i]._remove) projList.splice(i, 1);
     }
 
     return defeated;
@@ -4316,33 +4735,66 @@ function drawVsHalf(p, cam, enemyList, stickerList, projList, pChar, pNum, stick
         const prx = pr.x - cam;
         ctx.save();
         ctx.translate(prx, pr.y);
-        ctx.rotate(pr.spin);
-        if (pr.charType === 'emilia') {
-            ctx.fillStyle = '#C4956A';
-            ctx.beginPath(); ctx.ellipse(0, 2, 6, 7, 0, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.arc(0, -6, 5, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.arc(-4, -10, 2.5, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.arc(4, -10, 2.5, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = '#222';
-            ctx.beginPath(); ctx.arc(-2, -7, 0.8, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.arc(2, -7, 0.8, 0, Math.PI * 2); ctx.fill();
-        } else if (pr.charType === 'heath') {
-            ctx.fillStyle = '#8B4513';
-            ctx.beginPath(); ctx.ellipse(0, 0, 10, 6, 0, 0, Math.PI * 2); ctx.fill();
-            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.moveTo(-4, -6); ctx.lineTo(4, 6); ctx.stroke();
-        } else {
-            ctx.fillStyle = '#fff';
-            ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = '#333';
+        if (pr.isWave) {
+            // Fishies wave — blue water splash
+            ctx.fillStyle = 'rgba(52, 152, 219, 0.7)';
             ctx.beginPath();
-            for (let i = 0; i < 5; i++) {
-                const a = (i * Math.PI * 2 / 5) - Math.PI / 2;
-                ctx[i === 0 ? 'moveTo' : 'lineTo'](Math.cos(a) * 4, Math.sin(a) * 4);
+            ctx.moveTo(-12, 0);
+            ctx.quadraticCurveTo(-6, -10, 0, 0);
+            ctx.quadraticCurveTo(6, 10, 12, 0);
+            ctx.quadraticCurveTo(6, -8, 0, 0);
+            ctx.quadraticCurveTo(-6, 8, -12, 0);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.beginPath(); ctx.arc(-3, -3, 2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(4, 2, 1.5, 0, Math.PI * 2); ctx.fill();
+        } else {
+            ctx.rotate(pr.spin);
+            if (pr.charType === 'emilia') {
+                ctx.fillStyle = '#C4956A';
+                ctx.beginPath(); ctx.ellipse(0, 2, 6, 7, 0, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(0, -6, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(-4, -10, 2.5, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(4, -10, 2.5, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#222';
+                ctx.beginPath(); ctx.arc(-2, -7, 0.8, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(2, -7, 0.8, 0, Math.PI * 2); ctx.fill();
+            } else if (pr.charType === 'heath') {
+                ctx.fillStyle = '#8B4513';
+                ctx.beginPath(); ctx.ellipse(0, 0, 10, 6, 0, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(-4, -6); ctx.lineTo(4, 6); ctx.stroke();
+            } else {
+                ctx.fillStyle = '#fff';
+                ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#333';
+                ctx.beginPath();
+                for (let i = 0; i < 5; i++) {
+                    const a = (i * Math.PI * 2 / 5) - Math.PI / 2;
+                    ctx[i === 0 ? 'moveTo' : 'lineTo'](Math.cos(a) * 4, Math.sin(a) * 4);
+                }
+                ctx.closePath(); ctx.fill();
             }
-            ctx.closePath(); ctx.fill();
         }
         ctx.restore();
+    }
+
+    // Draw VS enemy lasers for this player's half
+    for (const l of vsEnemyLasers) {
+        if (l.owner !== pNum) continue;
+        const lx = l.x - cam;
+        if (l.isPoo) {
+            ctx.fillStyle = '#8B4513';
+            ctx.beginPath(); ctx.ellipse(lx, l.y, 5, 4, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#6B3410';
+            ctx.beginPath(); ctx.arc(lx - 1, l.y - 2, 2, 0, Math.PI * 2); ctx.fill();
+        } else {
+            ctx.fillStyle = l.color;
+            ctx.shadowColor = l.color;
+            ctx.shadowBlur = 8;
+            ctx.beginPath(); ctx.arc(lx, l.y, 4, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur = 0;
+        }
     }
 
     // Draw win flag
@@ -4374,7 +4826,7 @@ function drawVsHalf(p, cam, enemyList, stickerList, projList, pChar, pNum, stick
     if (p.isBlocking) {
         const bcx = px + p.width / 2;
         const bcy = p.y + p.height / 2;
-        const pulse = 0.8 + Math.sin(Date.now() * 0.008) * 0.2;
+        const pulse = 0.8 + Math.sin(frameTime * 0.008) * 0.2;
         ctx.save();
         ctx.globalAlpha = 0.35 * pulse;
         ctx.strokeStyle = '#4fc3f7';
@@ -4389,6 +4841,47 @@ function drawVsHalf(p, cam, enemyList, stickerList, projList, pChar, pNum, stick
     }
     selectedCharacter = pSaved;
 
+    // Draw visual effects (claw marks, sound waves)
+    drawVisualEffects();
+
+    // Draw active companion following the player
+    const vsComp = pNum === 1 ? p1ActiveCompanion : p2ActiveCompanion;
+    if (vsComp) {
+        const time = frameTime * 0.005;
+        const ccx = px + p.width / 2 - p.facing * 25;
+        const ccy = p.y - 15 + Math.sin(time) * 5;
+        ctx.save();
+        ctx.translate(ccx, ccy);
+        if (vsComp.type === 'jules') {
+            ctx.fillStyle = '#1a1a1a';
+            ctx.beginPath(); ctx.ellipse(0, 2, 8, 6, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(0, -4, 5, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#8B7355';
+            ctx.beginPath(); ctx.ellipse(0, -2, 3, 2, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.beginPath(); ctx.arc(-2, -5, 1.5, 0, Math.PI * 2); ctx.arc(2, -5, 1.5, 0, Math.PI * 2); ctx.fill();
+            if (p.compCooldown <= 0) {
+                ctx.fillStyle = 'rgba(241,196,15,0.6)';
+                ctx.font = '9px Segoe UI'; ctx.textAlign = 'center';
+                ctx.fillText(pNum === 1 ? 'Q/E' : '7/9', 0, -14);
+                ctx.textAlign = 'left';
+            }
+        } else {
+            ctx.fillStyle = '#e67e22';
+            ctx.beginPath(); ctx.ellipse(0, 0, 7, 4, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(-10, -3); ctx.lineTo(-10, 3); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.beginPath(); ctx.arc(3, -1, 1.5, 0, Math.PI * 2); ctx.fill();
+            if (p.compCooldown <= 0) {
+                ctx.fillStyle = 'rgba(52,152,219,0.6)';
+                ctx.font = '9px Segoe UI'; ctx.textAlign = 'center';
+                ctx.fillText(pNum === 1 ? 'Q/E' : '7/9', 0, -10);
+                ctx.textAlign = 'left';
+            }
+        }
+        ctx.restore();
+    }
+
     // Foreground ambient particles
     drawForegroundLayer();
 
@@ -4396,10 +4889,12 @@ function drawVsHalf(p, cam, enemyList, stickerList, projList, pChar, pNum, stick
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(0, 0, halfW, 32);
 
-    // Player label
+    // Player label with control type icon
     ctx.fillStyle = pNum === 1 ? '#3498db' : '#e74c3c';
     ctx.font = 'bold 11px Segoe UI, sans-serif';
-    ctx.fillText('P' + pNum + ' ' + CHAR_INFO[pChar].name, 6, 12);
+    const isCtrlPlayer = pNum === 1 ? p1ControlType === 'controller' : (gamepad2Connected ? p2ControlType === 'controller' : p1ControlType !== 'controller');
+    const ctrlIcon = isCtrlPlayer ? '🎮' : '⌨️';
+    ctx.fillText('P' + pNum + ' ' + ctrlIcon + ' ' + getCharName(pChar), 6, 12);
 
     // Hearts
     for (let i = 0; i < p.maxHealth; i++) {
@@ -4441,6 +4936,24 @@ function drawVsHalf(p, cam, enemyList, stickerList, projList, pChar, pNum, stick
         ctx.fillText(spec.icon + Math.ceil(p.specialCooldown / 60), halfW - 35, 28);
     }
 
+    // Controls hint bar (compact, per-player)
+    const isCtrlP = pNum === 1 ? p1ControlType === 'controller' : (gamepad2Connected ? p2ControlType === 'controller' : p1ControlType !== 'controller');
+    const atkName = CHAR_INFO[pChar].attackName;
+    const specN = CHAR_INFO[pChar].special.name;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(0, SCREEN_H - 14, halfW, 14);
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '8px Segoe UI, sans-serif';
+    ctx.textAlign = 'center';
+    if (isCtrlP) {
+        ctx.fillText('Stick Move  △ Jump  ✕ ' + atkName + '  ○ Throw  □ Block  R2 ' + specN, halfW / 2, SCREEN_H - 4);
+    } else if (pNum === 1) {
+        ctx.fillText('WASD Move  W Jump  SPACE ' + atkName + '  CTRL Throw  SHIFT Block  G ' + specN, halfW / 2, SCREEN_H - 4);
+    } else {
+        ctx.fillText('← → Move  ↑ Jump  Num. ' + atkName + '  Enter Throw  Num0 Block  + ' + specN, halfW / 2, SCREEN_H - 4);
+    }
+    ctx.textAlign = 'left';
+
     cameraX = savedCameraX;
 
     ctx.restore();
@@ -4477,10 +4990,10 @@ function drawVsResults() {
 
     ctx.fillStyle = '#3498db';
     ctx.font = 'bold 22px Segoe UI, sans-serif';
-    ctx.fillText('P1 — ' + CHAR_INFO[p1Character].name, col1, 110);
+    ctx.fillText('P1 — ' + getCharName(p1Character), col1, 110);
 
     ctx.fillStyle = '#e74c3c';
-    ctx.fillText('P2 — ' + CHAR_INFO[p2Character].name, col2, 110);
+    ctx.fillText('P2 — ' + getCharName(p2Character), col2, 110);
 
     // Stats
     const stats = [
@@ -4489,7 +5002,7 @@ function drawVsResults() {
         ['Finished', p1Died ? 'Died' : p1Completed ? 'Yes (+100)' : 'No', p2Died ? 'Died' : p2Completed ? 'Yes (+100)' : 'No', ''],
         ['Time', p1Completed ? p1Time + 's' : '—', p2Completed ? p2Time + 's' : '—', ''],
         ['Time Bonus', '+' + timeBonus1, '+' + timeBonus2, ''],
-        ['First Bonus', firstBonus1 > 0 ? '+200' : '—', firstBonus2 > 0 ? '+200' : '—', ''],
+        ['First Bonus', firstBonus1 > 0 ? '+100' : '—', firstBonus2 > 0 ? '+100' : '—', ''],
     ];
 
     ctx.font = '14px Segoe UI, sans-serif';
@@ -4527,11 +5040,11 @@ function drawVsResults() {
         ctx.fillText("IT'S A DRAW!", SCREEN_W / 2, 430);
     }
 
-    const flash = 0.5 + Math.sin(Date.now() * 0.004) * 0.5;
+    const flash = 0.5 + Math.sin(frameTime * 0.004) * 0.5;
     ctx.globalAlpha = flash;
     ctx.fillStyle = '#fff';
     ctx.font = '16px Segoe UI, sans-serif';
-    ctx.fillText(gamepadConnected ? '✕ Rematch — ○ Menu' : 'ENTER Rematch — ESC Menu', SCREEN_W / 2, 475);
+    ctx.fillText(touchControlsActive ? 'Tap to continue' : gamepadConnected ? '✕ Rematch — ○ Menu' : 'ENTER Rematch — ESC Menu', SCREEN_W / 2, 475);
     ctx.globalAlpha = 1;
 
     ctx.textAlign = 'left';
@@ -4539,10 +5052,7 @@ function drawVsResults() {
 
 function drawCharacterSelect() {
     // Background
-    const grad = ctx.createLinearGradient(0, 0, 0, SCREEN_H);
-    grad.addColorStop(0, '#1a1a2e');
-    grad.addColorStop(1, '#16213e');
-    ctx.fillStyle = grad;
+    ctx.fillStyle = GRAD_CHAR_SELECT;
     ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
 
     // Title
@@ -4555,8 +5065,10 @@ function drawCharacterSelect() {
     ctx.font = '16px Segoe UI, sans-serif';
     ctx.fillText('Choose your character', SCREEN_W / 2, 82);
 
-    // Draw 5 character cards in a row
-    const cardW = 130, cardH = 230, gap = 14;
+    // Draw character cards in a row — sized dynamically to fill the canvas
+    const margin = 20, gap = 10;
+    const cardW = Math.floor((SCREEN_W - 2 * margin - (CHARACTERS.length - 1) * gap) / CHARACTERS.length);
+    const cardH = 230;
     const totalW = CHARACTERS.length * cardW + (CHARACTERS.length - 1) * gap;
     const startX = (SCREEN_W - totalW) / 2;
     const cardY = 100;
@@ -4594,7 +5106,7 @@ function drawCharacterSelect() {
         // Name
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 16px Segoe UI, sans-serif';
-        ctx.fillText(info.name, midX, cardY + 145);
+        ctx.fillText(getCharName(c), midX, cardY + 145);
         // Ability
         ctx.fillStyle = isSel ? '#f1c40f' : '#aaa';
         ctx.font = '11px Segoe UI, sans-serif';
@@ -4661,12 +5173,14 @@ function drawCharacterSelect() {
     ctx.fillText('⌨️ Keyboard', SCREEN_W / 2 + 175, diffBtnY + 20);
 
     // Instructions
-    ctx.fillStyle = '#f1c40f';
-    ctx.font = '13px Segoe UI, sans-serif';
-    if (gamepadConnected) {
-        ctx.fillText('← → char    ↑↓ diff    SHARE controls    ✕ start    ○ back', SCREEN_W / 2, SCREEN_H - 14);
-    } else {
-        ctx.fillText('← → char    ↑↓ diff    TAB controls    ENTER start    ESC back', SCREEN_W / 2, SCREEN_H - 14);
+    if (!touchControlsActive) {
+        ctx.fillStyle = '#f1c40f';
+        ctx.font = '13px Segoe UI, sans-serif';
+        if (gamepadConnected) {
+            ctx.fillText('← → char    ↑↓ diff    SHARE controls    ✕ start    ○ back', SCREEN_W / 2, SCREEN_H - 14);
+        } else {
+            ctx.fillText('← → char    ↑↓ diff    TAB controls    ENTER start    ESC back', SCREEN_W / 2, SCREEN_H - 14);
+        }
     }
     ctx.textAlign = 'left';
 }
@@ -4752,7 +5266,7 @@ function updateSpecialAbility(p, charType, enemyList, projList) {
                         if (e.health <= 0) { e.alive = false; sfxEnemyDeath(); }
                     }
                 }
-                screenShake = { x: 0, y: 0, intensity: 8, timer: 15 };
+                addScreenShake(8, 15);
                 spawnParticles(p.x + p.width / 2, p.y + p.height, '#8B4513', 20, 25, 4);
                 p.specialActive = 0;
             }
@@ -4954,7 +5468,7 @@ function drawPlayerSprite(p, character) {
     } else {
         // ---- TRANSFORM ANIMATION MODE (static PNG) ----
         // Animate the single sprite using transforms based on state
-        const t = Date.now() * 0.001;
+        const t = frameTime * 0.001;
         let offY = 0, scaleX = 1, scaleY = 1, rotation = 0;
 
         if (animState === 'idle') {
@@ -5029,10 +5543,10 @@ function drawPlayerSprite(p, character) {
             const info = CHAR_INFO[character];
             if (info.isTackle) {
                 ctx.fillStyle = 'rgba(255,255,255,0.4)';
-                ctx.beginPath(); ctx.arc(18, 10, 10 + Math.random() * 4, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(18, 10, 10 + (Math.sin(frameTime * 0.02) + 1) * 2, 0, Math.PI * 2); ctx.fill();
             } else {
                 ctx.fillStyle = 'rgba(241,196,15,0.5)';
-                ctx.beginPath(); ctx.arc(18, 20, 9 + Math.random() * 4, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(18, 20, 9 + (Math.sin(frameTime * 0.02) + 1) * 2, 0, Math.PI * 2); ctx.fill();
             }
         }
     }
@@ -5061,7 +5575,7 @@ function drawPlayer(p) {
         const sx = p.x - cameraX;
         const cx = sx + p.width / 2;
         const cy = p.y + p.height / 2;
-        const pulse = 0.8 + Math.sin(Date.now() * 0.008) * 0.2;
+        const pulse = 0.8 + Math.sin(frameTime * 0.008) * 0.2;
         ctx.save();
         ctx.globalAlpha = 0.35 * pulse;
         ctx.strokeStyle = '#4fc3f7';
@@ -5084,7 +5598,7 @@ function drawSpecialEffect(p, charType) {
     const sx = p.x - cameraX;
     const cx = sx + p.width / 2;
     const cy = p.y + p.height / 2;
-    const t = Date.now() * 0.01;
+    const t = frameTime * 0.01;
     ctx.save();
     if (charType === 'heath') {
         ctx.globalAlpha = 0.4; ctx.fillStyle = '#ff6600';
@@ -5093,7 +5607,7 @@ function drawSpecialEffect(p, charType) {
         for (let i = 0; i < 5; i++) {
             const ly = cy - 15 + i * 8;
             const lx = sx + (p.facing === 1 ? -10 : p.width + 10);
-            ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx - p.facing * (20 + Math.random() * 15), ly); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx - p.facing * (20 + (Math.sin(frameTime * 0.025 + i * 1.3) + 1) * 7.5), ly); ctx.stroke();
         }
     } else if (charType === 'charlie') {
         ctx.globalAlpha = 0.25; ctx.fillStyle = '#3498db';
@@ -5140,8 +5654,8 @@ function drawFlyingShoe(e, sx) {
     ctx.translate(sx + e.width / 2, e.y + e.height / 2);
     if (e.facing === -1) ctx.scale(-1, 1);
     const isHit = e.hitFlash > 0;
-    const bob = Math.sin(Date.now() * 0.005 + e.x) * 3;
-    const flapAngle = Math.sin(Date.now() * 0.015 + e.x) * 0.15;
+    const bob = Math.sin(frameTime * 0.005 + e.x) * 3;
+    const flapAngle = Math.sin(frameTime * 0.015 + e.x) * 0.15;
     ctx.rotate(flapAngle);
 
     // Shadow on ground
@@ -5203,7 +5717,7 @@ function drawFlyingShoe(e, sx) {
     ctx.beginPath(); ctx.moveTo(20, -7 + bob); ctx.lineTo(16, -6 + bob); ctx.stroke();
 
     // Wings (little flapping wings on sides)
-    const wingY = -6 + bob + Math.sin(Date.now() * 0.02) * 4;
+    const wingY = -6 + bob + Math.sin(frameTime * 0.02) * 4;
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     // Left wing
     ctx.beginPath();
@@ -5235,7 +5749,7 @@ function drawSpikeMonster(e, sx) {
     ctx.translate(sx + e.width / 2, e.y + e.height / 2);
     if (e.facing === -1) ctx.scale(-1, 1);
     const isHit = e.hitFlash > 0;
-    const bob = Math.sin(Date.now() * 0.006 + e.x) * 2;
+    const bob = Math.sin(frameTime * 0.006 + e.x) * 2;
 
     // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.15)';
@@ -5300,19 +5814,19 @@ function drawSpikeMonster(e, sx) {
 }
 
 // --- STAGE 2: Giant Alien with Laser Blaster ---
+const ALIEN_COLORS = { green: '#27ae60', purple: '#8e44ad', orange: '#e67e22' };
+const ALIEN_LIGHT_COLORS = { green: '#2ecc71', purple: '#a569bd', orange: '#f39c12' };
+const ALIEN_DARK_COLORS = { green: '#1e8449', purple: '#6c3483', orange: '#ca6f1e' };
+
 function drawGiantAlien(e, sx) {
     ctx.save();
     ctx.translate(sx + e.width / 2, e.y + e.height / 2);
     if (e.facing === -1) ctx.scale(-1, 1);
     const isHit = e.hitFlash > 0;
-    const bob = Math.sin(Date.now() * 0.004 + e.x) * 1.5;
-
-    const colors = { green: '#27ae60', purple: '#8e44ad', orange: '#e67e22' };
-    const lightColors = { green: '#2ecc71', purple: '#a569bd', orange: '#f39c12' };
-    const darkColors = { green: '#1e8449', purple: '#6c3483', orange: '#ca6f1e' };
-    const baseColor = isHit ? '#ff4444' : (colors[e.alienColor] || '#27ae60');
-    const lightColor = isHit ? '#ff6666' : (lightColors[e.alienColor] || '#2ecc71');
-    const darkColor = isHit ? '#cc3333' : (darkColors[e.alienColor] || '#1e8449');
+    const bob = Math.sin(frameTime * 0.004 + e.x) * 1.5;
+    const baseColor = isHit ? '#ff4444' : (ALIEN_COLORS[e.alienColor] || '#27ae60');
+    const lightColor = isHit ? '#ff6666' : (ALIEN_LIGHT_COLORS[e.alienColor] || '#2ecc71');
+    const darkColor = isHit ? '#cc3333' : (ALIEN_DARK_COLORS[e.alienColor] || '#1e8449');
 
     // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.15)';
@@ -5358,7 +5872,7 @@ function drawGiantAlien(e, sx) {
     ctx.beginPath(); ctx.arc(6, -26 + bob, 2, 0, Math.PI * 2); ctx.fill();
 
     // Antenna — bouncy
-    const antBob = Math.sin(Date.now() * 0.008 + e.x) * 3;
+    const antBob = Math.sin(frameTime * 0.008 + e.x) * 3;
     ctx.strokeStyle = baseColor; ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.moveTo(0, -40 + bob); ctx.quadraticCurveTo(antBob, -44 + bob, antBob * 0.5, -48 + bob); ctx.stroke();
     ctx.fillStyle = '#f1c40f';
@@ -5402,7 +5916,7 @@ function drawSmallAlien(e, sx) {
     ctx.translate(sx + e.width / 2, e.y + e.height / 2);
     if (e.facing === -1) ctx.scale(-1, 1);
     const isHit = e.hitFlash > 0;
-    const bob = Math.sin(Date.now() * 0.007 + e.x * 0.5) * 1.5;
+    const bob = Math.sin(frameTime * 0.007 + e.x * 0.5) * 1.5;
 
     // Semi-transparent when hidden
     if (e.hidden && e.revealTimer <= 0) ctx.globalAlpha = 0.3;
@@ -5443,7 +5957,7 @@ function drawSmallAlien(e, sx) {
     ctx.beginPath(); ctx.ellipse(-4, -12 + bob, 4, 4.5, 0, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.ellipse(4, -12 + bob, 4, 4.5, 0, 0, Math.PI * 2); ctx.fill();
     // Pupils — look around sneakily
-    const lookX = Math.sin(Date.now() * 0.003) * 1;
+    const lookX = Math.sin(frameTime * 0.003) * 1;
     ctx.fillStyle = '#111';
     ctx.beginPath(); ctx.arc(-4 + lookX, -12 + bob, 2, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(4 + lookX, -12 + bob, 2, 0, Math.PI * 2); ctx.fill();
@@ -5495,8 +6009,8 @@ function drawLaserLine(e, sx) {
     ctx.save();
     ctx.translate(sx + e.width / 2, e.y + e.height / 2);
     const isHit = e.hitFlash > 0;
-    const pulse = 0.7 + Math.sin(Date.now() * 0.01) * 0.3;
-    const flicker = Math.sin(Date.now() * 0.05) * 0.1;
+    const pulse = 0.7 + Math.sin(frameTime * 0.01) * 0.3;
+    const flicker = Math.sin(frameTime * 0.05) * 0.1;
 
     // Outer glow halo
     ctx.fillStyle = `rgba(231, 76, 60, ${0.1 + flicker})`;
@@ -5524,7 +6038,7 @@ function drawLaserLine(e, sx) {
     ctx.shadowBlur = 0;
 
     // Energy nodes — pulsing orbs
-    const nodePhase = Date.now() * 0.005;
+    const nodePhase = frameTime * 0.005;
     for (let n = -1; n <= 1; n++) {
         const nx = n * 20;
         const nSize = 4 + Math.sin(nodePhase + n * 2) * 1.5;
@@ -5571,7 +6085,7 @@ function drawLaserLine(e, sx) {
     ctx.beginPath();
     ctx.moveTo(-25, 0);
     for (let ex = -20; ex <= 20; ex += 5) {
-        ctx.lineTo(ex, (Math.random() - 0.5) * 6);
+        ctx.lineTo(ex, Math.sin(frameTime * 0.05 + ex * 0.7) * 3);
     }
     ctx.lineTo(25, 0);
     ctx.stroke();
@@ -5590,7 +6104,7 @@ function drawEnemyLasers() {
             // Draw poo dropping
             ctx.save();
             ctx.translate(sx, l.y);
-            const rot = Math.sin(Date.now() * 0.01 + l.x) * 0.2;
+            const rot = Math.sin(frameTime * 0.01 + l.x) * 0.2;
             ctx.rotate(rot);
             // Poo swirl - three stacked blobs
             ctx.fillStyle = '#6B3410';
@@ -5602,7 +6116,7 @@ function drawEnemyLasers() {
             // Stink lines
             ctx.strokeStyle = 'rgba(120,180,60,0.5)';
             ctx.lineWidth = 1;
-            const stinkT = Date.now() * 0.008;
+            const stinkT = frameTime * 0.008;
             ctx.beginPath(); ctx.moveTo(-4, -7); ctx.quadraticCurveTo(-6, -12 + Math.sin(stinkT) * 2, -3, -14); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(2, -7); ctx.quadraticCurveTo(4, -13 + Math.sin(stinkT + 1) * 2, 5, -15); ctx.stroke();
             ctx.restore();
@@ -5628,7 +6142,7 @@ function drawEnemyLasers() {
 
 // --- Draw Stickers ---
 function drawStickers() {
-    const time = Date.now() * 0.003;
+    const time = frameTime * 0.003;
     for (const s of stickers) {
         if (s.collected) continue;
         const sx = s.x - cameraX;
@@ -5645,7 +6159,7 @@ function drawStickers() {
         ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.fill();
 
         // Card background — holographic
-        const hue = (Date.now() * 0.1 + s.x) % 360;
+        const hue = (frameTime * 0.1 + s.x) % 360;
         ctx.fillStyle = '#f1c40f';
         ctx.shadowColor = `hsl(${hue}, 80%, 60%)`;
         ctx.shadowBlur = 6;
@@ -5694,7 +6208,7 @@ function drawStar(x, y, inner, outer) {
 
 // --- Draw Weapon Pickups ---
 function drawWeaponPickups() {
-    const time = Date.now() * 0.003;
+    const time = frameTime * 0.003;
     for (const w of weaponPickups) {
         if (w.collected) continue;
         const sx = w.x - cameraX;
@@ -5731,7 +6245,7 @@ function drawWeaponPickups() {
 
 // --- Draw Health Hearts ---
 function drawHearts() {
-    const time = Date.now() * 0.003;
+    const time = frameTime * 0.003;
     for (const h of hearts) {
         if (h.collected) continue;
         const sx = h.x - cameraX;
@@ -5779,7 +6293,7 @@ function drawHearts() {
 
 // --- Draw Companion Pickups ---
 function drawCompanionPickups() {
-    const time = Date.now() * 0.003;
+    const time = frameTime * 0.003;
     for (const c of companionPickups) {
         if (c.collected) continue;
         const sx = c.x - cameraX;
@@ -5844,7 +6358,7 @@ function drawCompanionPickups() {
 function drawActiveCompanion() {
     if (!activeCompanion) return;
     const sx = player.x - cameraX;
-    const time = Date.now() * 0.005;
+    const time = frameTime * 0.005;
 
     ctx.save();
     // Companion floats above and behind the player
@@ -5947,7 +6461,7 @@ function drawSpecialCooldownHUD(p, charType, hudX, hudY) {
     ctx.beginPath(); ctx.roundRect(hudX, hudY, 98, 22, 4); ctx.fill();
     ctx.font = '11px Segoe UI, sans-serif';
     if (isActive) {
-        const pulse = 0.7 + Math.sin(Date.now() * 0.01) * 0.3;
+        const pulse = 0.7 + Math.sin(frameTime * 0.01) * 0.3;
         ctx.fillStyle = `rgba(241,196,15,${pulse})`;
         ctx.fillText(spec.icon + ' ACTIVE!', hudX + 5, hudY + 15);
     } else if (isReady) {
@@ -6087,18 +6601,20 @@ function drawHUD() {
     }
     ctx.textAlign = 'left';
 
-    // Sound/Music indicator (top-right, below collectibles)
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath();
-    ctx.roundRect(SCREEN_W - 75, 82, 68, 32, 4);
-    ctx.fill();
-    ctx.font = '10px Segoe UI, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = soundEnabled ? 'rgba(255,255,255,0.8)' : 'rgba(255,100,100,0.8)';
-    ctx.fillText('M SFX ' + (soundEnabled ? 'ON' : 'OFF'), SCREEN_W - 41, 95);
-    ctx.fillStyle = musicEnabled ? 'rgba(255,255,255,0.8)' : 'rgba(255,100,100,0.8)';
-    ctx.fillText('N Music ' + (musicEnabled ? 'ON' : 'OFF'), SCREEN_W - 41, 108);
-    ctx.textAlign = 'left';
+    // Sound/Music indicator (bottom-right, above controls hint) — hide on mobile (has touch buttons)
+    if (!touchControlsActive) {
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.beginPath();
+        ctx.roundRect(SCREEN_W - 75, SCREEN_H - 50, 68, 26, 4);
+        ctx.fill();
+        ctx.font = '9px Segoe UI, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = soundEnabled ? 'rgba(255,255,255,0.6)' : 'rgba(255,100,100,0.6)';
+        ctx.fillText('M SFX ' + (soundEnabled ? 'ON' : 'OFF'), SCREEN_W - 41, SCREEN_H - 40);
+        ctx.fillStyle = musicEnabled ? 'rgba(255,255,255,0.6)' : 'rgba(255,100,100,0.6)';
+        ctx.fillText('N Music ' + (musicEnabled ? 'ON' : 'OFF'), SCREEN_W - 41, SCREEN_H - 29);
+        ctx.textAlign = 'left';
+    }
 
     // Gamepad debug overlay (toggle: Share + L1)
     if (gpDebugEnabled && gpDebugInfo) {
@@ -6152,18 +6668,11 @@ function drawTitleScreen() {
         ctx.drawImage(titleImage, drawX, drawY, drawW, drawH);
 
         // Dark overlay at bottom for UI readability
-        const uiGrad = ctx.createLinearGradient(0, SCREEN_H * 0.55, 0, SCREEN_H);
-        uiGrad.addColorStop(0, 'rgba(0,0,0,0)');
-        uiGrad.addColorStop(0.4, 'rgba(0,0,0,0.7)');
-        uiGrad.addColorStop(1, 'rgba(0,0,0,0.9)');
-        ctx.fillStyle = uiGrad;
+        ctx.fillStyle = GRAD_TITLE_UI;
         ctx.fillRect(0, SCREEN_H * 0.55, SCREEN_W, SCREEN_H * 0.45);
     } else {
         // Fallback while image loads
-        const grad = ctx.createLinearGradient(0, 0, 0, SCREEN_H);
-        grad.addColorStop(0, '#0a0a2e');
-        grad.addColorStop(1, '#0a0a1e');
-        ctx.fillStyle = grad;
+        ctx.fillStyle = GRAD_TITLE_FALLBACK;
         ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
 
         ctx.fillStyle = '#f1c40f';
@@ -6175,9 +6684,9 @@ function drawTitleScreen() {
     ctx.textAlign = 'center';
 
     // Mode selection buttons (positioned in lower portion)
-    const modes = ['Adventure', 'VS Mode (Split-Screen)'];
+    const modes = ['Adventure', 'VS Mode (Split-Screen)', '👨 Daddy Selection: ' + DADDY_MODES[daddyModeIndex]];
     for (let i = 0; i < modes.length; i++) {
-        const my = SCREEN_H - 120 + i * 40;
+        const my = SCREEN_H - 155 + i * 34;
         const selected = titleCursor === i;
         // Button background
         ctx.fillStyle = selected ? 'rgba(233, 69, 96, 0.85)' : 'rgba(0,0,0,0.5)';
@@ -6189,15 +6698,24 @@ function drawTitleScreen() {
             ctx.beginPath(); ctx.roundRect(SCREEN_W / 2 - 140, my - 15, 280, 32, 8); ctx.stroke();
         }
         // Text
-        ctx.fillStyle = selected ? '#fff' : '#ccc';
+        ctx.fillStyle = selected ? '#fff' : (i === 2 ? '#aaa' : '#ccc');
         ctx.font = selected ? 'bold 18px Segoe UI, sans-serif' : '16px Segoe UI, sans-serif';
         ctx.fillText(modes[i], SCREEN_W / 2, my + 5);
+        // Daddy Mode arrows
+        if (i === 2 && selected) {
+            ctx.fillStyle = '#f1c40f';
+            ctx.font = 'bold 18px Segoe UI, sans-serif';
+            ctx.fillText('◀', SCREEN_W / 2 - 130, my + 5);
+            ctx.fillText('▶', SCREEN_W / 2 + 130, my + 5);
+        }
     }
 
-    // Sound/music toggle hint
-    ctx.fillStyle = '#777';
-    ctx.font = '11px Segoe UI, sans-serif';
-    ctx.fillText('M = Sound ' + (soundEnabled ? 'ON' : 'OFF') + '    N = Music ' + (musicEnabled ? 'ON' : 'OFF'), SCREEN_W / 2, SCREEN_H - 55);
+    // Sound/music toggle hint — hide on mobile (has touch buttons)
+    if (!touchControlsActive) {
+        ctx.fillStyle = '#777';
+        ctx.font = '11px Segoe UI, sans-serif';
+        ctx.fillText('M = Sound ' + (soundEnabled ? 'ON' : 'OFF') + '    N = Music ' + (musicEnabled ? 'ON' : 'OFF'), SCREEN_W / 2, SCREEN_H - 42);
+    }
 
     // Prompt
     const flashAlpha = 0.5 + Math.sin(titleTimer * 0.06) * 0.5;
@@ -6205,7 +6723,7 @@ function drawTitleScreen() {
     ctx.fillStyle = '#ccc';
     ctx.font = '14px Segoe UI, sans-serif';
     const menuHint = touchControlsActive ? 'Tap to select' : gamepadConnected ? '↑↓ select — ✕ to start' : '↑↓ select — ENTER to start';
-    ctx.fillText(menuHint, SCREEN_W / 2, SCREEN_H - 35);
+    ctx.fillText(menuHint, SCREEN_W / 2, SCREEN_H - 27);
     ctx.globalAlpha = 1;
 
     ctx.textAlign = 'left';
@@ -6239,11 +6757,11 @@ function drawStageComplete() {
 
     // Prompt
     if (stageCompleteTimer <= 60) {
-        const blink = Math.sin(Date.now() * 0.005) > 0;
+        const blink = Math.sin(frameTime * 0.005) > 0;
         if (blink) {
             ctx.fillStyle = '#2ecc71';
             ctx.font = 'bold 20px Segoe UI, sans-serif';
-            ctx.fillText(gamepadConnected ? 'Press ✕ for Upgrade Shop' : 'Press ENTER for Upgrade Shop', SCREEN_W / 2, 340);
+            ctx.fillText(touchControlsActive ? 'Tap for Upgrade Shop' : gamepadConnected ? 'Press ✕ for Upgrade Shop' : 'Press ENTER for Upgrade Shop', SCREEN_W / 2, 340);
         }
     }
 
@@ -6256,10 +6774,7 @@ function drawStageComplete() {
 // ============================================================
 function drawUpgradeShop() {
     // Background
-    const grad = ctx.createLinearGradient(0, 0, 0, SCREEN_H);
-    grad.addColorStop(0, '#1a1a3e');
-    grad.addColorStop(1, '#0d0d2b');
-    ctx.fillStyle = grad;
+    ctx.fillStyle = GRAD_SHOP;
     ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
 
     // Title
@@ -6385,7 +6900,9 @@ function drawPauseScreen() {
 
     ctx.fillStyle = '#aaa';
     ctx.font = '16px Segoe UI, sans-serif';
-    if (gamepadConnected) {
+    if (touchControlsActive) {
+        ctx.fillText('Tap ⏸ to resume', SCREEN_W / 2, SCREEN_H / 2 + 5);
+    } else if (gamepadConnected) {
         ctx.fillText('OPTIONS to resume', SCREEN_W / 2, SCREEN_H / 2 + 5);
         ctx.fillText('SHARE to restart', SCREEN_W / 2, SCREEN_H / 2 + 30);
         ctx.fillText('○ exit to main menu', SCREEN_W / 2, SCREEN_H / 2 + 55);
@@ -6398,7 +6915,7 @@ function drawPauseScreen() {
     // Current stats
     ctx.fillStyle = '#888';
     ctx.font = '13px Segoe UI, sans-serif';
-    const elapsed = Math.floor((Date.now() - gameStartTime) / 1000);
+    const elapsed = Math.floor((frameTime - gameStartTime) / 1000);
     const mins = Math.floor(elapsed / 60);
     const secs = elapsed % 60;
     ctx.fillText('Time: ' + mins + ':' + (secs < 10 ? '0' : '') + secs + '   Enemies: ' + enemiesDefeated + '   Stickers: ' + stickersCollected, SCREEN_W / 2, SCREEN_H / 2 + 80);
@@ -6476,7 +6993,7 @@ function drawWinScreen() {
     ctx.textAlign = 'center';
 
     // Victory particles (golden)
-    const t = Date.now() * 0.002;
+    const t = frameTime * 0.002;
     ctx.fillStyle = 'rgba(241, 196, 15, 0.3)';
     for (let i = 0; i < 20; i++) {
         const px = (Math.sin(t + i * 1.3) * 0.5 + 0.5) * SCREEN_W;
@@ -6500,7 +7017,7 @@ function drawWinScreen() {
     // Subtitle
     ctx.fillStyle = '#fff';
     ctx.font = '20px Segoe UI, sans-serif';
-    const name = CHAR_INFO[selectedCharacter].name;
+    const name = getCharName(selectedCharacter);
     const winLevel = getCurrentLevel();
     ctx.fillText(name + ' defeated ' + winLevel.bossName + '!', SCREEN_W / 2, SCREEN_H / 2 + 10);
 
@@ -6519,11 +7036,13 @@ function drawWinScreen() {
     ctx.fillText('Stickers: ' + stickersCollected + '/' + totalStickers + '   Weapons: ' + weaponsCollected + '/4', SCREEN_W / 2, SCREEN_H / 2 + 95);
 
     // Next level / restart
-    const flashAlpha = 0.5 + Math.sin(Date.now() * 0.004) * 0.5;
+    const flashAlpha = 0.5 + Math.sin(frameTime * 0.004) * 0.5;
     ctx.globalAlpha = flashAlpha;
     ctx.fillStyle = '#f1c40f';
     ctx.font = 'bold 18px Segoe UI, sans-serif';
-    if (currentLevel < Object.keys(LEVELS).length) {
+    if (touchControlsActive) {
+        ctx.fillText(currentLevel < TOTAL_LEVELS ? 'Tap to continue' : 'You beat them all! Tap to play again', SCREEN_W / 2, SCREEN_H / 2 + 130);
+    } else if (currentLevel < TOTAL_LEVELS) {
         ctx.fillText(gamepadConnected ? '✕ next level — △ replay — ○ menu' : 'ENTER next level — R replay — ESC menu', SCREEN_W / 2, SCREEN_H / 2 + 130);
     } else {
         ctx.fillText(gamepadConnected ? 'You beat them all! ✕ play again — ○ menu' : 'You beat them all! ENTER play again — ESC menu', SCREEN_W / 2, SCREEN_H / 2 + 130);
@@ -6543,10 +7062,7 @@ function drawLoseScreen() {
     ctx.textAlign = 'center';
 
     // Red vignette
-    const vignette = ctx.createRadialGradient(SCREEN_W / 2, SCREEN_H / 2, 100, SCREEN_W / 2, SCREEN_H / 2, 400);
-    vignette.addColorStop(0, 'rgba(150,0,0,0)');
-    vignette.addColorStop(1, 'rgba(100,0,0,0.3)');
-    ctx.fillStyle = vignette;
+    ctx.fillStyle = GRAD_LOSE_VIGNETTE;
     ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
 
     ctx.fillStyle = '#e74c3c';
@@ -6556,8 +7072,7 @@ function drawLoseScreen() {
     // Encouragement
     ctx.fillStyle = '#bbb';
     ctx.font = '16px Segoe UI, sans-serif';
-    const msgs = ['Not bad! Try again?', 'You got this!', 'The Bombarder awaits...', 'One more go?', 'Nearly there!'];
-    ctx.fillText(msgs[Math.floor(Date.now() / 5000) % msgs.length], SCREEN_W / 2, SCREEN_H / 2);
+    ctx.fillText(lostMessage || 'Try again?', SCREEN_W / 2, SCREEN_H / 2);
 
     // Stats
     ctx.fillStyle = 'rgba(255,255,255,0.08)';
@@ -6571,7 +7086,7 @@ function drawLoseScreen() {
     ctx.fillText('Stickers: ' + stickersCollected + '   Weapons: ' + weaponsCollected, SCREEN_W / 2, SCREEN_H / 2 + 56);
 
     // Restart
-    const flashAlpha = 0.5 + Math.sin(Date.now() * 0.004) * 0.5;
+    const flashAlpha = 0.5 + Math.sin(frameTime * 0.004) * 0.5;
     ctx.globalAlpha = flashAlpha;
     ctx.fillStyle = '#e74c3c';
     ctx.font = 'bold 18px Segoe UI, sans-serif';
@@ -6594,11 +7109,11 @@ function rectCollision(a, b) {
 
 function updatePlayer() {
     const wasInAir = !player.onGround;
-    // Horizontal movement
-    if (keys['ArrowLeft'] || keys['KeyA']) {
+    // Horizontal movement (keyboard + gamepad stick)
+    if (keys['ArrowLeft'] || keys['KeyA'] || gpStick.left) {
         player.vx = -player.speed;
         player.facing = -1;
-    } else if (keys['ArrowRight'] || keys['KeyD']) {
+    } else if (keys['ArrowRight'] || keys['KeyD'] || gpStick.right) {
         player.vx = player.speed;
         player.facing = 1;
     } else {
@@ -6674,24 +7189,32 @@ function updatePlayer() {
         player.blockTimer = 0;
     }
 
-    // Ranged attack (F key / O on controller) — kick rugby ball or football
-    if (keys['Control'] && !player._rangedHeld && player.rangedAmmo > 0 && !player.isAttacking && !player.isBlocking) {
-        player.rangedAmmo--;
+    // Combined ranged/special (Control key / O on controller)
+    // Special takes priority when ready; otherwise fires ranged throw
+    if (keys['Control'] && !player._rangedHeld && !player.isAttacking && !player.isBlocking) {
+        if (player.specialCooldown <= 0 && player.specialActive <= 0) {
+            // Fire special ability
+            activateSpecialAbility(player, 'Control', selectedCharacter);
+        } else if (player.rangedAmmo > 0) {
+            // Fire ranged throw
+            player.rangedAmmo--;
+            projectiles.push({
+                x: player.x + (player.facing === 1 ? player.width + 5 : -10),
+                y: player.y + player.height / 2,
+                vx: player.facing * 10,
+                vy: -1.5,
+                spin: 0,
+                alive: true,
+                damage: 3,
+                isRanged: true,
+                charType: selectedCharacter,
+            });
+            sfxHit();
+        }
         player._rangedHeld = true;
-        projectiles.push({
-            x: player.x + (player.facing === 1 ? player.width + 5 : -10),
-            y: player.y + player.height / 2,
-            vx: player.facing * 10,
-            vy: -1.5,
-            spin: 0,
-            alive: true,
-            damage: 3,
-            isRanged: true,
-            charType: selectedCharacter,
-        });
-        sfxHit();
     }
     if (!keys['Control']) player._rangedHeld = false;
+    updateSpecialAbility(player, selectedCharacter, enemies, projectiles);
 
     // Companion abilities
     if (keys['KeyQ'] && !player.compQHeld) {
@@ -6705,10 +7228,6 @@ function updatePlayer() {
         player.compEHeld = true;
     }
     if (!keys['KeyE']) player.compEHeld = false;
-
-    // ---- SPECIAL ABILITY (G key / R2 on controller) ----
-    activateSpecialAbility(player, 'KeyG', selectedCharacter);
-    updateSpecialAbility(player, selectedCharacter, enemies, projectiles);
 
     // Gravity
     player.vy += GRAVITY;
@@ -6811,6 +7330,7 @@ function updatePlayer() {
     // Check lose
     if (player.health <= 0) {
         gameState = 'lost';
+        diedInBoss = false;
         sfxDefeat();
         stopMusic();
     }
@@ -6916,7 +7436,7 @@ function updateEnemies() {
 
         if (e.type === 'flying_shoe') {
             // Hover up and down
-            e.y = e.flyBaseY + Math.sin(Date.now() * 0.003 + e.x * 0.01) * 25;
+            e.y = e.flyBaseY + Math.sin(frameTime * 0.003 + e.x * 0.01) * 25;
             // Face the player when nearby
             if (distToPlayer < 400) e.facing = player.x > e.x ? 1 : -1;
             // Drop poo when above or near the player
@@ -7005,7 +7525,7 @@ function updateEnemies() {
 }
 
 function updateEnemyLasers() {
-    for (let i = enemyLasers.length - 1; i >= 0; i--) {
+    for (let i = 0; i < enemyLasers.length; i++) {
         const l = enemyLasers[i];
         l.x += l.vx;
         if (l.vy) l.y += l.vy;
@@ -7014,7 +7534,7 @@ function updateEnemyLasers() {
         // Poo splats on ground
         if (l.isPoo && l.y >= GROUND_Y - 4) {
             spawnParticles(l.x, GROUND_Y, '#8B4513', 4, 5, 2);
-            enemyLasers.splice(i, 1);
+            l._remove = true;
             continue;
         }
 
@@ -7027,24 +7547,26 @@ function updateEnemyLasers() {
             addScreenShake(3, 6);
             spawnParticles(l.x, l.y, l.isPoo ? '#8B4513' : (l.color || '#e74c3c'), 5, 6, 3);
             sfxPlayerHurt();
-            enemyLasers.splice(i, 1);
+            l._remove = true;
             continue;
         }
 
         // Off screen?
         if (l.x < cameraX - 100 || l.x > cameraX + SCREEN_W + 100 || l.y < -50 || l.y > SCREEN_H + 50) {
-            enemyLasers.splice(i, 1);
+            l._remove = true;
         }
     }
+    enemyLasers = enemyLasers.filter(l => !l._remove);
 }
 
 function updateProjectiles() {
-    for (let i = projectiles.length - 1; i >= 0; i--) {
+    for (let i = 0; i < projectiles.length; i++) {
         const ball = projectiles[i];
         if (ball.isHoming) updateHomingProjectile(ball);
         ball.x += ball.vx;
         ball.y += ball.vy;
         if (!ball.isWave && !ball.isHoming) ball.vy += 0.18; // noticeable arc trajectory
+        if (ball.isWave) { ball.waveLife--; if (ball.waveLife <= 0) ball.alive = false; }
         ball.spin += 0.3;
 
         // Check if ball hits an enemy
@@ -7065,11 +7587,12 @@ function updateProjectiles() {
             }
         }
 
-        // Remove if off screen or hit something
+        // Mark if off screen or hit something
         if (!ball.alive || ball.x < cameraX - 50 || ball.x > cameraX + SCREEN_W + 50 || ball.y > SCREEN_H + 50) {
-            projectiles.splice(i, 1);
+            ball._remove = true;
         }
     }
+    projectiles = projectiles.filter(b => !b._remove);
 }
 
 function updateCollectibles() {
@@ -7198,6 +7721,7 @@ function useCompanionAbility(abilityKey) {
                 alive: true,
                 isWave: true, // special — passes through enemies
                 damage: waveDmg,
+                waveLife: 60,
             });
             sfxFishtailKick();
             companionCooldown = 60;
@@ -7215,7 +7739,7 @@ function useCompanionAbility(abilityKey) {
 }
 
 function updateVisualEffects() {
-    for (let i = visualEffects.length - 1; i >= 0; i--) {
+    for (let i = 0; i < visualEffects.length; i++) {
         const fx = visualEffects[i];
         fx.timer--;
 
@@ -7229,26 +7753,29 @@ function updateVisualEffects() {
             fx.radius = 10 + (fx.maxRadius - 10) * progress;
 
             // Damage enemies as the wave reaches them
-            for (const e of enemies) {
+            const targetEnemies = fx.vsEnemies || enemies;
+            for (const e of targetEnemies) {
                 if (!e.alive || fx.damaged.has(e)) continue;
                 const dist = Math.sqrt(
                     Math.pow((e.x + e.width / 2) - fx.x, 2) +
                     Math.pow((e.y + e.height / 2) - fx.y, 2)
                 );
                 if (dist < fx.radius && dist > fx.radius - 40) {
-                    e.health -= 4; // powerful!
+                    e.health -= 4;
                     e.hitFlash = 20;
                     sfxHit();
-                    if (e.health <= 0) { e.alive = false; enemiesDefeated++; if (e.stage !== undefined) stageKillCounts[e.stage]++; stickersCollected++; spawnEnemyDeathEffect(e); sfxEnemyDeath(); }
+                    if (e.health <= 0) {
+                        e.alive = false;
+                        spawnEnemyDeathEffect(e); sfxEnemyDeath();
+                        if (!fx.vsEnemies) { enemiesDefeated++; if (e.stage !== undefined) stageKillCounts[e.stage]++; stickersCollected++; }
+                    }
                     fx.damaged.add(e);
                 }
             }
         }
 
-        if (fx.timer <= 0) {
-            visualEffects.splice(i, 1);
-        }
     }
+    visualEffects = visualEffects.filter(fx => fx.timer > 0);
 }
 
 function drawVisualEffects() {
@@ -7276,7 +7803,7 @@ function drawVisualEffects() {
             ctx.fillStyle = '#e74c3c';
             for (let s = 0; s < 3; s++) {
                 ctx.beginPath();
-                ctx.arc(15 + Math.random() * 8, -6 + (s - 1) * 8 + Math.random() * 4, 2, 0, Math.PI * 2);
+                ctx.arc(15 + (Math.sin(frameTime * 0.03 + s * 2.1) + 1) * 4, -6 + (s - 1) * 8 + (Math.sin(frameTime * 0.04 + s * 1.7) + 1) * 2, 2, 0, Math.PI * 2);
                 ctx.fill();
             }
 
@@ -7398,16 +7925,16 @@ const bossplatforms = [
 
 function updateBossFight() {
     // Player movement (reuse same controls)
-    if (keys['ArrowLeft'] || keys['KeyA']) { player.vx = -player.speed; player.facing = -1; }
-    else if (keys['ArrowRight'] || keys['KeyD']) { player.vx = player.speed; player.facing = 1; }
+    if (keys['ArrowLeft'] || keys['KeyA'] || gpStick.left) { player.vx = -player.speed; player.facing = -1; }
+    else if (keys['ArrowRight'] || keys['KeyD'] || gpStick.right) { player.vx = player.speed; player.facing = 1; }
     else { player.vx *= FRICTION; if (Math.abs(player.vx) < 0.3) player.vx = 0; }
 
-    if ((keys['ArrowUp'] || keys['KeyW'] || keys['GamepadJump']) && !player.jumpKeyHeld && player.jumps < player.maxJumps) {
+    if ((keys['ArrowUp'] || keys['KeyW'] || keys['GamepadJump'] || gpStick.up) && !player.jumpKeyHeld && player.jumps < player.maxJumps) {
         player.vy = player.jumps === 0 ? player.jumpForce : player.jumpForce * 0.85;
         player.jumps++; player.onGround = false; player.jumpKeyHeld = true;
         sfxJump();
     }
-    if (!(keys['ArrowUp'] || keys['KeyW'] || keys['GamepadJump'])) player.jumpKeyHeld = false;
+    if (!(keys['ArrowUp'] || keys['KeyW'] || keys['GamepadJump'] || gpStick.up)) player.jumpKeyHeld = false;
 
     // Attack
     if (keys['Space'] && !player.isAttacking && player.attackCooldown <= 0) {
@@ -7454,34 +7981,35 @@ function updateBossFight() {
         player.blockTimer = 0;
     }
 
-    // Ranged attack in boss fight
-    if (keys['Control'] && !player._rangedHeld && player.rangedAmmo > 0 && !player.isAttacking && !player.isBlocking) {
-        player.rangedAmmo--;
+    // Combined ranged/special in boss fight
+    if (keys['Control'] && !player._rangedHeld && !player.isAttacking && !player.isBlocking) {
+        if (player.specialCooldown <= 0 && player.specialActive <= 0) {
+            activateSpecialAbility(player, 'Control', selectedCharacter);
+        } else if (player.rangedAmmo > 0) {
+            player.rangedAmmo--;
+            projectiles.push({
+                x: player.x + (player.facing === 1 ? player.width + 5 : -10),
+                y: player.y + player.height / 2,
+                vx: player.facing * 10,
+                vy: -1.5,
+                spin: 0,
+                alive: true,
+                damage: 3,
+                isRanged: true,
+                charType: selectedCharacter,
+            });
+            sfxHit();
+        }
         player._rangedHeld = true;
-        projectiles.push({
-            x: player.x + (player.facing === 1 ? player.width + 5 : -10),
-            y: player.y + player.height / 2,
-            vx: player.facing * 10,
-            vy: -1.5,
-            spin: 0,
-            alive: true,
-            damage: 3,
-            isRanged: true,
-            charType: selectedCharacter,
-        });
-        sfxHit();
     }
     if (!keys['Control']) player._rangedHeld = false;
+    updateSpecialAbility(player, selectedCharacter, [], projectiles);
 
     // Companion abilities in boss fight
     if (keys['KeyQ'] && !player.compQHeld) { useCompanionAbility('Q'); player.compQHeld = true; }
     if (!keys['KeyQ']) player.compQHeld = false;
     if (keys['KeyE'] && !player.compEHeld) { useCompanionAbility('E'); player.compEHeld = true; }
     if (!keys['KeyE']) player.compEHeld = false;
-
-    // Special ability in boss fight (G key / R2)
-    activateSpecialAbility(player, 'KeyG', selectedCharacter);
-    updateSpecialAbility(player, selectedCharacter, [], projectiles);
 
     // Gravity
     player.vy += GRAVITY;
@@ -7532,7 +8060,7 @@ function updateBossFight() {
     else if (!player.isAttacking) player.animFrame = 0;
 
     // --- Boss AI ---
-    boss.eyeGlow = 0.5 + Math.sin(Date.now() * 0.005) * 0.3;
+    boss.eyeGlow = 0.5 + Math.sin(frameTime * 0.005) * 0.3;
     boss.attackTimer++;
     if (boss.hitFlash > 0) boss.hitFlash--;
 
@@ -7549,7 +8077,6 @@ function updateBossFight() {
 
     // Boss attacks — themed per level
     if (boss.attackTimer >= effectiveCooldown && boss.alive) {
-        const theme = getBossTheme();
         // Each level has different attack pools
         let attacks;
         if (currentLevel === 1) {
@@ -7672,7 +8199,7 @@ function updateBossFight() {
     }
 
     // Update boss lasers
-    for (let i = bossLasers.length - 1; i >= 0; i--) {
+    for (let i = 0; i < bossLasers.length; i++) {
         const l = bossLasers[i];
         l.x += l.vx; l.y += l.vy; l.timer--;
 
@@ -7684,15 +8211,16 @@ function updateBossFight() {
                 player.invincible = player.isBlocking ? 20 : 40;
                 player.vy = player.isBlocking ? -1 : -4;
                 sfxPlayerHurt();
-                bossLasers.splice(i, 1);
+                l._remove = true;
                 continue;
             }
         }
 
         if (l.timer <= 0 || l.x < -50 || l.x > SCREEN_W + 50 || l.y > SCREEN_H + 50) {
-            bossLasers.splice(i, 1);
+            l._remove = true;
         }
     }
+    bossLasers = bossLasers.filter(l => !l._remove);
 
     // --- Boss contact damage (player takes damage when too close) ---
     if (boss.alive && player.invincible <= 0 && !player.isAttacking) {
@@ -7739,13 +8267,13 @@ function updateBossFight() {
                 boss.hitCooldown = 30;
                 sfxBossHit();
                 if (boss.health <= boss.maxHealth * 0.3 && boss.phase === 2) boss.phase = 3;
-                if (boss.health <= 0) { boss.alive = false; gameState = 'won'; sfxVictory(); startMusic('victory'); }
+                if (boss.health <= 0) { boss.alive = false; gameState = 'won'; wonScreenDelay = 90; sfxVictory(); startMusic('victory'); }
             }
         }
     }
 
     // Projectiles (Charlie's football, fishies wave) hit boss
-    for (let i = projectiles.length - 1; i >= 0; i--) {
+    for (let i = 0; i < projectiles.length; i++) {
         const ball = projectiles[i];
         ball.x += ball.vx; ball.y += ball.vy;
         if (!ball.isWave) ball.vy += 0.18;
@@ -7761,17 +8289,18 @@ function updateBossFight() {
             } else {
                 boss.health -= dmg;
                 if (boss.health <= boss.maxHealth * 0.3 && boss.phase === 2) boss.phase = 3;
-                if (boss.health <= 0) { boss.alive = false; gameState = 'won'; sfxVictory(); startMusic('victory'); }
+                if (boss.health <= 0) { boss.alive = false; gameState = 'won'; wonScreenDelay = 90; sfxVictory(); startMusic('victory'); }
             }
             boss.hitFlash = 10;
             sfxBossHit();
-            if (ball.isWave) { ball.hitBoss = true; } else { projectiles.splice(i, 1); continue; }
+            if (ball.isWave) { ball.hitBoss = true; } else { ball._remove = true; continue; }
         }
 
         if (!ball.alive || ball.x < -50 || ball.x > SCREEN_W + 50 || ball.y > SCREEN_H + 50) {
-            projectiles.splice(i, 1);
+            ball._remove = true;
         }
     }
+    projectiles = projectiles.filter(b => !b._remove);
 
     // Visual effects (companion abilities work in boss fight)
     updateVisualEffects();
@@ -7782,7 +8311,7 @@ function updateBossFight() {
             if (dist < fx.radius) {
                 const dmg = weaponsCollected > 0 ? 3 : 2; // capped vs boss
                 if (boss.phase === 1) { boss.charmHealth -= dmg; if (boss.charmHealth <= 0) { boss.charmBroken = true; boss.phase = 2; } }
-                else { boss.health -= dmg; if (boss.health <= boss.maxHealth * 0.3 && boss.phase === 2) boss.phase = 3; if (boss.health <= 0) { boss.alive = false; gameState = 'won'; sfxVictory(); startMusic('victory'); } }
+                else { boss.health -= dmg; if (boss.health <= boss.maxHealth * 0.3 && boss.phase === 2) boss.phase = 3; if (boss.health <= 0) { boss.alive = false; gameState = 'won'; wonScreenDelay = 90; sfxVictory(); startMusic('victory'); } }
                 boss.hitFlash = 15;
                 sfxBossHit();
                 fx.hitBoss = true;
@@ -7821,7 +8350,7 @@ function updateBossFight() {
             } else {
                 boss.health -= specDmg;
                 if (boss.health <= boss.maxHealth * 0.3 && boss.phase === 2) boss.phase = 3;
-                if (boss.health <= 0) { boss.alive = false; gameState = 'won'; sfxVictory(); startMusic('victory'); }
+                if (boss.health <= 0) { boss.alive = false; gameState = 'won'; wonScreenDelay = 90; sfxVictory(); startMusic('victory'); }
             }
             boss.hitFlash = 10;
             boss.hitCooldown = 30;
@@ -7834,7 +8363,7 @@ function updateBossFight() {
     if (companionCooldown > 0) companionCooldown--;
 
     // Player dies
-    if (player.health <= 0) { gameState = 'lost'; sfxDefeat(); stopMusic(); }
+    if (player.health <= 0) { gameState = 'lost'; diedInBoss = true; sfxDefeat(); stopMusic(); }
 }
 
 // Boss visual themes per level
@@ -8002,7 +8531,6 @@ function drawBossFight() {
         const eyeIntensity = boss.eyeGlow;
         ctx.shadowColor = boss.phase === 3 ? theme.eyeEnraged : theme.eyeColor;
         ctx.shadowBlur = 20 * eyeIntensity;
-        const eyeRGB = theme.eyeColor;
         ctx.fillStyle = `rgba(255, ${boss.phase === 3 ? 0 : 50}, 0, ${eyeIntensity})`;
         // Left eye
         ctx.beginPath(); ctx.ellipse(bx + 78, by + 42, 14, 8, -0.2, 0, Math.PI * 2); ctx.fill();
@@ -8032,7 +8560,7 @@ function drawBossFight() {
         if (!boss.charmBroken) {
             const charmX = bx + 100;
             const charmY = by + 200;
-            const pulse = 0.8 + Math.sin(Date.now() * 0.005) * 0.2;
+            const pulse = 0.8 + Math.sin(frameTime * 0.005) * 0.2;
 
             // Shield glow
             ctx.strokeStyle = `rgba(241, 196, 15, ${pulse})`;
@@ -8124,7 +8652,7 @@ function drawBossFight() {
                 ctx.strokeStyle = l.color;
                 ctx.lineWidth = 6;
                 ctx.beginPath(); ctx.moveTo(l.x, l.y);
-                for (let rx = l.x; rx > l.x - 180; rx -= 20) ctx.lineTo(rx, l.y + (Math.random() - 0.5) * 12);
+                for (let rx = l.x; rx > l.x - 180; rx -= 20) ctx.lineTo(rx, l.y + Math.sin(frameTime * 0.01 + rx * 0.3) * 6);
                 ctx.stroke();
             } else if (pt === 'office') {
                 // Red tape — literally red tape ribbon
@@ -8242,8 +8770,8 @@ function drawBossFight() {
                     ctx.fillStyle = '#333'; // handle
                     ctx.fillRect(-4, -sz * 0.7 - 4, 8, 3);
                 } else {
-                    // Spinning money / paper
-                    if (Math.random() < 0.5) {
+                    // Spinning money / paper (use position as stable seed)
+                    if ((Math.floor(l.x * 7 + l.y * 13) % 2) === 0) {
                         // Green banknote
                         ctx.fillStyle = '#85bb65';
                         ctx.fillRect(-sz, -sz * 0.5, sz * 2, sz);
@@ -8266,9 +8794,8 @@ function drawBossFight() {
                 ctx.beginPath(); ctx.arc(l.x, l.y, sz, 0, Math.PI * 2); ctx.fill();
             }
 
-            if (pt !== 'laser') ctx.restore();
-            else { ctx.shadowBlur = 0; }
             ctx.shadowBlur = 0;
+            ctx.restore();
         }
     }
 
@@ -8391,6 +8918,7 @@ function restart() {
     enemies = createEnemies();
     projectiles = [];
     enemyLasers = [];
+    bossLasers = [];
     stickers = createStickers();
     hearts = createHearts();
     stickersCollected = 0;
@@ -8411,6 +8939,8 @@ function restart() {
     player.speed = 4;
     currentLevel = 1;
     gameEndTime = 0;
+    wonScreenDelay = undefined;
+    lostMessage = '';
     titleTimer = 0;
     gameState = 'title';
     startMusic('title');
@@ -8427,8 +8957,11 @@ let musicKeyHeld = false;
 let shopEnterHeld = false;
 let shopContinueHeld = false;
 
+let frameTime = Date.now(); // updated once per frame for consistent timing
+
 function gameLoop() {
   try {
+    frameTime = Date.now();
     pollGamepad(); // check controller input each frame
     ctx.clearRect(0, 0, SCREEN_W, SCREEN_H);
     updateScreenShake();
@@ -8471,16 +9004,29 @@ function gameLoop() {
         drawTitleScreen();
         // Navigate mode selection
         if ((keys['ArrowUp'] || keys['KeyW']) && !titleKeyHeld) {
-            titleCursor = 0;
+            titleCursor = (titleCursor - 1 + 3) % 3;
             titleKeyHeld = true;
         } else if ((keys['ArrowDown'] || keys['KeyS']) && !titleKeyHeld) {
-            titleCursor = 1;
+            titleCursor = (titleCursor + 1) % 3;
             titleKeyHeld = true;
         }
         if (!(keys['ArrowUp'] || keys['KeyW'] || keys['ArrowDown'] || keys['KeyS'])) titleKeyHeld = false;
+        // Daddy Mode: left/right to cycle daddies
+        if (titleCursor === 2) {
+            if ((keys['ArrowLeft'] || keys['KeyA']) && !daddyKeyHeld) {
+                daddyModeIndex = (daddyModeIndex - 1 + DADDY_MODES.length) % DADDY_MODES.length;
+                daddyKeyHeld = true;
+            } else if ((keys['ArrowRight'] || keys['KeyD']) && !daddyKeyHeld) {
+                daddyModeIndex = (daddyModeIndex + 1) % DADDY_MODES.length;
+                daddyKeyHeld = true;
+            }
+            if (!(keys['ArrowLeft'] || keys['KeyA'] || keys['ArrowRight'] || keys['KeyD'])) daddyKeyHeld = false;
+        }
         if (keys['Enter'] && !titleConfirmHeld) {
             titleConfirmHeld = true;
-            if (titleCursor === 0) {
+            if (titleCursor === 2) {
+                // Daddy Selection — no action on Enter/X, use ←/→ to cycle
+            } else if (titleCursor === 0) {
                 gameMode = 'solo';
                 selectConfirmHeld = true; // prevent Enter carrying over to select screen
                 gameState = 'select';
@@ -8572,7 +9118,7 @@ function gameLoop() {
             levelSelectCursor = Math.max(0, levelSelectCursor - 1);
             levelSelectKeyHeld = true;
         } else if ((keys['ArrowRight'] || keys['KeyD']) && !levelSelectKeyHeld) {
-            levelSelectCursor = Math.min(Object.keys(LEVELS).length - 1, levelSelectCursor + 1);
+            levelSelectCursor = Math.min(TOTAL_LEVELS - 1, levelSelectCursor + 1);
             levelSelectKeyHeld = true;
         }
         if (!(keys['ArrowLeft'] || keys['KeyA'] || keys['ArrowRight'] || keys['KeyD'])) {
@@ -8730,7 +9276,7 @@ function gameLoop() {
         if (gameEndTime === 0) {
             gameEndTime = Date.now();
             // Unlock next level
-            if (currentLevel < Object.keys(LEVELS).length) {
+            if (currentLevel < TOTAL_LEVELS) {
                 levelsUnlocked = Math.max(levelsUnlocked, currentLevel + 1);
             }
             // Unlock mummy & daddy if beaten with Heath or Emilia
@@ -8741,41 +9287,59 @@ function gameLoop() {
         }
         drawBossFight();
         drawWinScreen();
-        // ✕ / Enter / Space = next level, △ / R = replay, ○ / ESC = menu
-        if (keys['KeyR'] || keys['GamepadJump']) restart();
-        if ((keys['Enter'] || keys['Space']) && currentLevel < Object.keys(LEVELS).length) {
-            currentLevel++;
-            startLevel(currentLevel);
+        if (wonScreenDelay === undefined) wonScreenDelay = 90;
+        if (wonScreenDelay > 0) { wonScreenDelay--; }
+        else {
+            // ✕ / Enter / Space = next level, △ / R = replay, ○ / ESC = menu
+            if ((keys['KeyR'] || keys['GamepadJump']) && !wonInputHeld) { wonInputHeld = true; restart(); }
+            if ((keys['Enter'] || keys['Space']) && !wonInputHeld) {
+                wonInputHeld = true;
+                if (currentLevel < TOTAL_LEVELS) { currentLevel++; startLevel(currentLevel); }
+            }
+            if (!(keys['KeyR'] || keys['GamepadJump'] || keys['Enter'] || keys['Space'])) wonInputHeld = false;
+            if ((keys['Escape'] || keys['KeyQ']) && !pauseExitHeld) { pauseExitHeld = true; startMusic('title'); gameState = 'title'; }
+            if (!(keys['Escape'] || keys['KeyQ'])) pauseExitHeld = false;
         }
-        if ((keys['Escape'] || keys['KeyQ']) && !pauseExitHeld) { pauseExitHeld = true; startMusic('title'); gameState = 'title'; }
-        if (!(keys['Escape'] || keys['KeyQ'])) pauseExitHeld = false;
 
     // ===== LOST =====
     } else if (gameState === 'lost') {
-        if (gameEndTime === 0) gameEndTime = Date.now();
-        if (currentStage <= 4 && !boss.charmBroken && boss.health === boss.maxHealth) {
+        if (gameEndTime === 0) {
+            gameEndTime = Date.now();
+            lostScreenDelay = 90; // ~1.5s before accepting input
+            const lostMsgs = ['Not bad! Try again?', 'You got this!', 'The Bombarder awaits...', 'One more go?', 'Nearly there!'];
+            lostMessage = lostMsgs[Math.floor(Math.random() * lostMsgs.length)];
+        }
+        if (diedInBoss) {
+            drawBossFight();
+        } else {
             drawBackground();
             drawPlatforms();
             drawPlayer(player);
             drawForegroundLayer();
-        } else {
-            drawBossFight();
         }
         drawLoseScreen();
-        if (keys['KeyR'] || keys['Enter'] || keys['Space']) restart();
-        if ((keys['Escape'] || keys['KeyQ']) && !pauseExitHeld) { pauseExitHeld = true; startMusic('title'); gameState = 'title'; }
-        if (!(keys['Escape'] || keys['KeyQ'])) pauseExitHeld = false;
+        if (lostScreenDelay > 0) { lostScreenDelay--; }
+        else {
+            // Only accept input after delay AND key must be freshly pressed
+            if ((keys['KeyR'] || keys['Enter'] || keys['Space']) && !lostInputHeld) { lostInputHeld = true; restart(); }
+            if (!(keys['KeyR'] || keys['Enter'] || keys['Space'])) lostInputHeld = false;
+            if ((keys['Escape'] || keys['KeyQ']) && !pauseExitHeld) { pauseExitHeld = true; startMusic('title'); gameState = 'title'; }
+            if (!(keys['Escape'] || keys['KeyQ'])) pauseExitHeld = false;
+        }
 
     // ===== VS CHARACTER SELECT =====
     } else if (gameState === 'vs_select') {
         drawVsSelect();
 
-        // Control type toggle (Tab or Share on controller)
-        if ((keys['Tab'] || keys['KeyR']) && !controlToggleHeld) {
+        // P1 control type toggle (Tab)
+        if (keys['Tab'] && !controlToggleHeld) {
             p1ControlType = p1ControlType === 'controller' ? 'keyboard' : 'controller';
             controlToggleHeld = true;
         }
-        if (!(keys['Tab'] || keys['KeyR'])) controlToggleHeld = false;
+        if (!keys['Tab']) controlToggleHeld = false;
+
+        // P2 control type toggle (only when 2 controllers connected — Options on controller 2)
+        // Handled in pollGamepad() via gp2 button 9
 
         // Release guards — wait for keys to be released before accepting
         if (!(keys['Space'] || keys['Enter'])) vsConfirmHeld = false;
@@ -8854,13 +9418,35 @@ function gameLoop() {
 
         // Update stages based on position
         const newP1Stage = Math.min(4, Math.floor(player.x / STAGE_WIDTH) + 1);
-        if (newP1Stage >= p1Stage) p1Stage = newP1Stage;
         const newP2Stage = Math.min(4, Math.floor(player2.x / STAGE_WIDTH) + 1);
-        if (newP2Stage >= p2Stage) p2Stage = newP2Stage;
 
-        // Ranged ammo refill on stage change
+        // Ranged ammo refill on stage change (must check before updating stage vars)
         if (newP1Stage > p1Stage) player.rangedAmmo = 3;
         if (newP2Stage > p2Stage) player2.rangedAmmo = 3;
+
+        if (newP1Stage >= p1Stage) p1Stage = newP1Stage;
+        if (newP2Stage >= p2Stage) p2Stage = newP2Stage;
+
+        // Update visual effects (claw marks, sound waves, etc.)
+        updateVisualEffects();
+
+        // Update VS enemy lasers
+        for (let i = vsEnemyLasers.length - 1; i >= 0; i--) {
+            const l = vsEnemyLasers[i];
+            l.x += l.vx; l.y += l.vy;
+            if (l.isPoo) l.vy += l.pooGravity;
+            const target = l.owner === 2 ? player2 : player;
+            if (target.invincible <= 0 && rectCollision({ x: l.x - 4, y: l.y - 4, width: 8, height: 8 }, target)) {
+                if (!target.isBlocking) target.health--;
+                target.invincible = target.isBlocking ? 30 : 60;
+                sfxPlayerHurt();
+                vsEnemyLasers.splice(i, 1);
+                continue;
+            }
+            if (l.x < -50 || l.x > LEVEL_WIDTH + 50 || l.y > SCREEN_H + 50 || l.y < -50) {
+                vsEnemyLasers.splice(i, 1);
+            }
+        }
 
         // Check if players reach the end flag
         const flagZone = { x: LEVEL_WIDTH - 100, y: 0, width: 100, height: SCREEN_H };
@@ -8902,7 +9488,7 @@ function gameLoop() {
         ctx.fillRect(divX - 1, 0, 3, SCREEN_H);
 
         // Timer at top centre
-        const elapsed = Math.floor((Date.now() - vsStartTime) / 1000);
+        const elapsed = Math.floor((frameTime - vsStartTime) / 1000);
         const mins = Math.floor(elapsed / 60);
         const secs = elapsed % 60;
         ctx.fillStyle = 'rgba(0,0,0,0.7)';
@@ -8920,9 +9506,24 @@ function gameLoop() {
             pausedFromState = 'vs_playing';
         }
 
-        // Both finished — go to results
+        // Both finished — delay then go to results
         if (p1Finished && p2Finished) {
-            gameState = 'vs_results';
+            if (!vsEndDelay) vsEndDelay = 120; // ~2 second delay
+            vsEndDelay--;
+            // Show "GAME OVER" overlay during delay
+            ctx.fillStyle = 'rgba(0,0,0,0.4)';
+            ctx.fillRect(0, SCREEN_H / 2 - 20, SCREEN_W, 40);
+            ctx.fillStyle = '#f1c40f';
+            ctx.font = 'bold 24px Segoe UI, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('MATCH COMPLETE!', SCREEN_W / 2, SCREEN_H / 2 + 8);
+            ctx.textAlign = 'left';
+            if (vsEndDelay <= 0) {
+                vsEndDelay = 0;
+                vsConfirmHeld = true; // prevent immediate restart
+                pauseExitHeld = true; // prevent immediate exit
+                gameState = 'vs_results';
+            }
         }
 
     // ===== VS RESULTS =====
