@@ -1,0 +1,36 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: #1a1a2e;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+canvas {
+    border: 3px solid #e94560;
+    border-radius: 8px;
+    image-rendering: pixelated;
+    max-width: 100vw;
+    max-height: 100vh;
+    width: auto;
+    height: auto;
+}
+
+/* Mobile: hide border, fill screen */
+@media (max-width: 1024px) and (pointer: coarse) {
+    canvas {
+        border: none;
+        border-radius: 0;
+    }
+    body {
+        background: #000;
+    }
+}
