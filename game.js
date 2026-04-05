@@ -370,8 +370,8 @@ function initTouchControls() {
         const ny = dy / maxDist;
         keys['KeyA'] = nx < -joyDeadzone;
         keys['KeyD'] = nx > joyDeadzone;
-        keys['ArrowUp'] = ny < -joyDeadzone;
-        keys['ArrowDown'] = ny > joyDeadzone;
+        keys['JoystickUp'] = ny < -joyDeadzone;
+        keys['JoystickDown'] = ny > joyDeadzone;
     }
 
     function resetJoystick() {
@@ -379,8 +379,8 @@ function initTouchControls() {
         joystickThumb.style.top = (joyRadius - thumbRadius) + 'px';
         keys['KeyA'] = false;
         keys['KeyD'] = false;
-        keys['ArrowUp'] = false;
-        keys['ArrowDown'] = false;
+        keys['JoystickUp'] = false;
+        keys['JoystickDown'] = false;
         joystickTouchId = null;
     }
 
@@ -9015,14 +9015,14 @@ function gameLoop() {
     if (gameState === 'title') {
         drawTitleScreen();
         // Navigate mode selection
-        if ((keys['ArrowUp'] || keys['KeyW']) && !titleKeyHeld) {
+        if ((keys['ArrowUp'] || keys['KeyW'] || keys['JoystickUp']) && !titleKeyHeld) {
             titleCursor = (titleCursor - 1 + 3) % 3;
             titleKeyHeld = true;
-        } else if ((keys['ArrowDown'] || keys['KeyS']) && !titleKeyHeld) {
+        } else if ((keys['ArrowDown'] || keys['KeyS'] || keys['JoystickDown']) && !titleKeyHeld) {
             titleCursor = (titleCursor + 1) % 3;
             titleKeyHeld = true;
         }
-        if (!(keys['ArrowUp'] || keys['KeyW'] || keys['ArrowDown'] || keys['KeyS'])) titleKeyHeld = false;
+        if (!(keys['ArrowUp'] || keys['KeyW'] || keys['ArrowDown'] || keys['KeyS'] || keys['JoystickUp'] || keys['JoystickDown'])) titleKeyHeld = false;
         // Daddy Mode: left/right to cycle daddies
         if (titleCursor === 2) {
             if ((keys['ArrowLeft'] || keys['KeyA']) && !daddyKeyHeld) {
@@ -9074,14 +9074,14 @@ function gameLoop() {
             selectKeyHeld = false;
         }
         // Navigate difficulty (up/down)
-        if ((keys['ArrowUp'] || keys['KeyW']) && !diffKeyHeld) {
+        if ((keys['ArrowUp'] || keys['KeyW'] || keys['JoystickUp']) && !diffKeyHeld) {
             difficulty = 'child';
             diffKeyHeld = true;
-        } else if ((keys['ArrowDown'] || keys['KeyS']) && !diffKeyHeld) {
+        } else if ((keys['ArrowDown'] || keys['KeyS'] || keys['JoystickDown']) && !diffKeyHeld) {
             difficulty = 'adult';
             diffKeyHeld = true;
         }
-        if (!(keys['ArrowUp'] || keys['KeyW'] || keys['ArrowDown'] || keys['KeyS'])) {
+        if (!(keys['ArrowUp'] || keys['KeyW'] || keys['ArrowDown'] || keys['KeyS'] || keys['JoystickUp'] || keys['JoystickDown'])) {
             diffKeyHeld = false;
         }
         // Control type toggle (Tab or Share/Options on controller)
@@ -9175,14 +9175,14 @@ function gameLoop() {
         const items = getShopItems();
 
         // Navigate
-        if ((keys['ArrowUp'] || keys['KeyW']) && !shopKeyHeld) {
+        if ((keys['ArrowUp'] || keys['KeyW'] || keys['JoystickUp']) && !shopKeyHeld) {
             shopCursor = (shopCursor - 1 + items.length) % items.length;
             shopKeyHeld = true;
-        } else if ((keys['ArrowDown'] || keys['KeyS']) && !shopKeyHeld) {
+        } else if ((keys['ArrowDown'] || keys['KeyS'] || keys['JoystickDown']) && !shopKeyHeld) {
             shopCursor = (shopCursor + 1) % items.length;
             shopKeyHeld = true;
         }
-        if (!(keys['ArrowUp'] || keys['KeyW'] || keys['ArrowDown'] || keys['KeyS'])) {
+        if (!(keys['ArrowUp'] || keys['KeyW'] || keys['ArrowDown'] || keys['KeyS'] || keys['JoystickUp'] || keys['JoystickDown'])) {
             shopKeyHeld = false;
         }
 
