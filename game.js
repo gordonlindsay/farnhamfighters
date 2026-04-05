@@ -2,6 +2,18 @@
 // FARNHAM FIGHTERS — Stage 1 Skeleton
 // ============================================================
 
+// Global error handler — shows init errors on canvas
+window.onerror = function(msg, src, line) {
+    const c = document.getElementById('gameCanvas');
+    if (c) {
+        const x = c.getContext('2d');
+        x.fillStyle = '#000'; x.fillRect(0, 0, 960, 540);
+        x.fillStyle = 'red'; x.font = '14px monospace';
+        x.fillText('INIT ERROR: ' + msg, 10, 30);
+        x.fillText('Line: ' + line, 10, 50);
+    }
+};
+
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
