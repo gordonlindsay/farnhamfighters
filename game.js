@@ -1188,7 +1188,7 @@ const CHAR_INFO = {
     heath:   { name: 'HEATH',   ability: 'Rugby Tackle', quote: '"Let\'s move on!"', color: '#1a1a1a', attackName: 'Tackle', isTackle: true,  projectile: 'rugby',    ballIcon: '🏉',
                special: { name: 'Bulldozer', cooldown: 480, duration: 40, icon: '🐂' } },
     charlie: { name: 'CHARLIE', ability: 'Football Kick', quote: 'Cool & chilled',   color: '#a50044', attackName: 'Kick',   isTackle: false, projectile: 'football', ballIcon: '⚽',
-               special: { name: 'Skill Move', cooldown: 360, duration: 25, icon: '💨' } },
+               special: { name: 'Homing Shot', cooldown: 300, duration: 5, icon: '⚽' } },
     rupert:  { name: 'RUPERT',  ability: 'Power Kick',    quote: 'Up the Boro!',     color: '#e74c3c', attackName: 'Kick',   isTackle: false, projectile: 'football', ballIcon: '⚽',
                special: { name: 'Power Stomp', cooldown: 420, duration: 30, icon: '💥' } },
     jessica: { name: 'JESSICA', ability: 'Precision Kick', quote: 'Come on Oxford!', color: '#f1c40f', attackName: 'Kick', isTackle: false, projectile: 'football', ballIcon: '⚽',
@@ -4402,7 +4402,7 @@ function updateVsPlayer(p, pKeys, isP2) {
             p.specialType = charType;
             sfxSpecial();
             if (charType === 'heath') { p.vx = p.facing * 14; p.invincible = spec.duration + 5; }
-            else if (charType === 'charlie') { p.vx = p.facing * 16; p.invincible = spec.duration + 5; }
+            else if (charType === 'charlie') { p._charlieHomingFired = true; }
             else if (charType === 'rupert') { p.vy = -10; p.invincible = spec.duration + 5; }
             else if (charType === 'emilia') { p.invincible = spec.duration + 5; p.vy = -6; }
             else if (charType === 'mummy') { p.vy = -8; p.invincible = spec.duration + 5; }
@@ -5202,7 +5202,8 @@ function activateSpecialAbility(p, triggerKey, charType) {
         if (charType === 'heath') {
             p.vx = p.facing * 14; p.invincible = spec.duration + 5;
         } else if (charType === 'charlie') {
-            p.vx = p.facing * 16; p.invincible = spec.duration + 5;
+            // Homing Shot — fires a homing football at nearest enemy
+            p._charlieHomingFired = true;
         } else if (charType === 'rupert') {
             p.vy = -10; p.invincible = spec.duration + 5;
         } else if (charType === 'emilia') {
@@ -5234,14 +5235,26 @@ function updateSpecialAbility(p, charType, enemyList, projList) {
                 }
             }
         } else if (p.specialType === 'charlie') {
-            p.vx = p.facing * 16;
-            for (const e of enemyList) {
-                if (!e.alive) continue;
-                if (rectCollision(p, e)) {
-                    e.health -= 3; e.hitFlash = 10;
-                    spawnParticles(e.x + e.width / 2, e.y + e.height / 2, '#a50044', 6, 12, 2);
-                    if (e.health <= 0) { e.alive = false; sfxEnemyDeath(); }
+            // Homing Shot — fire a homing football once at the start
+            if (p._charlieHomingFired) {
+                p._charlieHomingFired = false;
+                let nearest = null, bestDist = Infinity;
+                for (const e of enemyList) {
+                    if (!e.alive) continue;
+                    const dx = (e.x + e.width / 2) - (p.x + p.width / 2);
+                    const dy = (e.y + e.height / 2) - (p.y + p.height / 2);
+                    const dist = dx * dx + dy * dy;
+                    if (dist < bestDist) { bestDist = dist; nearest = e; }
                 }
+                if (nearest) {
+                    projList.push({
+                        x: p.x + (p.facing === 1 ? p.width + 5 : -10),
+                        y: p.y + p.height / 2,
+                        vx: p.facing * 8, vy: -2, spin: 0, alive: true,
+                        damage: 5, isHoming: true, homingTarget: nearest, charType: 'charlie',
+                    });
+                }
+            }
             }
         } else if (p.specialType === 'rupert') {
             if (p.onGround && p.specialActive < CHAR_INFO.rupert.special.duration - 5) {
@@ -7140,24 +7153,6 @@ function updatePlayer() {
             sfxHit();
         } else {
             sfxKick();
-            // Charlie's ability: kick spawns a homing football that always hits nearest enemy
-            if (selectedCharacter === 'charlie') {
-                const nearest = findNearestEnemy(player);
-                if (nearest) {
-                    projectiles.push({
-                        x: player.x + (player.facing === 1 ? player.width + 5 : -10),
-                        y: player.y + player.height / 2,
-                        vx: player.facing * 8,
-                        vy: -2,
-                        spin: 0,
-                        alive: true,
-                        damage: 2 + (upgrades.kick >= 1 ? 1 : 0),
-                        isHoming: true,
-                        homingTarget: nearest,
-                        charType: 'charlie',
-                    });
-                }
-            }
         }
     }
 
@@ -7941,21 +7936,6 @@ function updateBossFight() {
             sfxHit();
         } else {
             sfxKick();
-            // Charlie's homing ball in boss fight — targets the boss directly
-            if (selectedCharacter === 'charlie' && boss.alive) {
-                projectiles.push({
-                    x: player.x + (player.facing === 1 ? player.width + 5 : -10),
-                    y: player.y + player.height / 2,
-                    vx: player.facing * 8,
-                    vy: -2,
-                    spin: 0,
-                    alive: true,
-                    damage: 2 + (upgrades.kick >= 1 ? 1 : 0),
-                    isHoming: true,
-                    homingTarget: boss,
-                    charType: 'charlie',
-                });
-            }
         }
     }
     if (player.isAttacking) { player.attackTimer--; if (player.attackTimer <= 0) player.isAttacking = false; }
