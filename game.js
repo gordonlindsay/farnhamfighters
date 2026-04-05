@@ -1,6 +1,7 @@
 // ============================================================
 // FARNHAM FIGHTERS — Stage 1 Skeleton
 // ============================================================
+const GAME_VERSION = 'v57';
 
 // Global error handler — shows init errors on canvas
 window.onerror = function(msg, src, line) {
@@ -1349,7 +1350,7 @@ const KILL_GATE_PCT = 0.6; // must kill 60% of enemies in stage to advance
 // ============================================================
 // UPGRADE SYSTEM — spend stickers to power up between stages
 // ============================================================
-const UPGRADE_COSTS_CHILD = [3, 5, 8];
+const UPGRADE_COSTS_CHILD = [5, 8, 12];
 const UPGRADE_COSTS_ADULT = [6, 10, 15];
 function getUpgradeCosts() { return difficulty === 'child' ? UPGRADE_COSTS_CHILD : UPGRADE_COSTS_ADULT; }
 
@@ -4926,6 +4927,23 @@ function drawVsHalf(p, cam, enemyList, stickerList, projList, pChar, pNum, stick
         ctx.fillText(spec.icon + Math.ceil(p.specialCooldown / 60), halfW - 35, 28);
     }
 
+    // Death overlay — greyed out with skull when health is zero
+    if (p.health <= 0) {
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(0, 0, halfW, SCREEN_H);
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.font = '64px Segoe UI, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('💀', halfW / 2, SCREEN_H / 2 - 10);
+        ctx.fillStyle = '#e74c3c';
+        ctx.font = 'bold 20px Segoe UI, sans-serif';
+        ctx.fillText('DEFEATED', halfW / 2, SCREEN_H / 2 + 35);
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.font = '12px Segoe UI, sans-serif';
+        ctx.fillText('Waiting for other player...', halfW / 2, SCREEN_H / 2 + 58);
+        ctx.textAlign = 'left';
+    }
+
     // Controls hint bar (compact, per-player)
     const isCtrlP = pNum === 1 ? p1ControlType === 'controller' : (gamepad2Connected ? p2ControlType === 'controller' : p1ControlType !== 'controller');
     const atkName = CHAR_INFO[pChar].attackName;
@@ -5254,7 +5272,6 @@ function updateSpecialAbility(p, charType, enemyList, projList) {
                         damage: 5, isHoming: true, homingTarget: nearest, charType: 'charlie',
                     });
                 }
-            }
             }
         } else if (p.specialType === 'rupert') {
             if (p.onGround && p.specialActive < CHAR_INFO.rupert.special.duration - 5) {
@@ -6729,6 +6746,12 @@ function drawTitleScreen() {
     ctx.fillText(menuHint, SCREEN_W / 2, SCREEN_H - 27);
     ctx.globalAlpha = 1;
 
+    // Version number (bottom-left)
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '10px Segoe UI, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(GAME_VERSION, 8, SCREEN_H - 6);
+
     ctx.textAlign = 'left';
 }
 
@@ -6906,9 +6929,9 @@ function drawPauseScreen() {
     if (touchControlsActive) {
         ctx.fillText('Tap ⏸ to resume', SCREEN_W / 2, SCREEN_H / 2 + 5);
     } else if (gamepadConnected) {
-        ctx.fillText('OPTIONS to resume', SCREEN_W / 2, SCREEN_H / 2 + 5);
-        ctx.fillText('SHARE to restart', SCREEN_W / 2, SCREEN_H / 2 + 30);
-        ctx.fillText('○ exit to main menu', SCREEN_W / 2, SCREEN_H / 2 + 55);
+        ctx.fillText('OPTIONS / ESC to resume', SCREEN_W / 2, SCREEN_H / 2 + 5);
+        ctx.fillText('SHARE / R to restart', SCREEN_W / 2, SCREEN_H / 2 + 30);
+        ctx.fillText('○ / Q exit to main menu', SCREEN_W / 2, SCREEN_H / 2 + 55);
     } else {
         ctx.fillText('ESC to resume', SCREEN_W / 2, SCREEN_H / 2 + 5);
         ctx.fillText('R to restart', SCREEN_W / 2, SCREEN_H / 2 + 30);
