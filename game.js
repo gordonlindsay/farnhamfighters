@@ -1,7 +1,7 @@
 // ============================================================
 // FARNHAM FIGHTERS — Stage 1 Skeleton
 // ============================================================
-const GAME_VERSION = 'v59';
+const GAME_VERSION = 'v60';
 
 // Global error handler — shows init errors on canvas
 window.onerror = function(msg, src, line) {
@@ -6787,7 +6787,7 @@ function drawStageComplete() {
         if (blink) {
             ctx.fillStyle = '#2ecc71';
             ctx.font = 'bold 20px Segoe UI, sans-serif';
-            ctx.fillText(touchControlsActive ? 'Tap for Upgrade Shop' : gamepadConnected ? 'Press ✕ for Upgrade Shop' : 'Press ENTER for Upgrade Shop', SCREEN_W / 2, 340);
+            ctx.fillText(touchControlsActive ? 'OK for Upgrade Shop' : gamepadConnected ? 'Press ✕ for Upgrade Shop' : 'Press ENTER for Upgrade Shop', SCREEN_W / 2, 340);
         }
     }
 
@@ -6890,7 +6890,7 @@ function drawUpgradeShop() {
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.font = '12px Segoe UI, sans-serif';
     if (touchControlsActive) {
-        ctx.fillText('Tap item to buy — Tap here to continue ▶', SCREEN_W / 2, SCREEN_H - 12);
+        ctx.fillText('⬆⬇ Select   OK Buy   ATK Continue', SCREEN_W / 2, SCREEN_H - 12);
     } else if (gamepadConnected) {
         ctx.fillText('D-pad ↑↓ Select   ✕ Buy   L3 Continue to next stage', SCREEN_W / 2, SCREEN_H - 12);
     } else {
@@ -9145,7 +9145,7 @@ function gameLoop() {
         drawHUD();
         drawStageComplete();
         stageCompleteTimer--;
-        if (stageCompleteTimer <= 0 && keys['Enter']) {
+        if (stageCompleteTimer <= 0 && (keys['Enter'] || touchControlsActive)) {
             shopCursor = 0;
             gameState = 'shop';
         }
@@ -9175,13 +9175,14 @@ function gameLoop() {
         }
         if (!keys['Enter']) shopEnterHeld = false;
 
-        // Continue to next stage
-        if (keys['KeyC'] && !shopContinueHeld) {
+        // Continue to next stage (C on keyboard, L3 on controller, ATK on mobile)
+        const continueKey = keys['KeyC'] || (touchControlsActive && keys['Space']);
+        if (continueKey && !shopContinueHeld) {
             shopContinueHeld = true;
             stageIntroTimer = STAGE_INTRO_DURATION;
             gameState = 'stage_intro';
         }
-        if (!keys['KeyC']) shopContinueHeld = false;
+        if (!continueKey) shopContinueHeld = false;
 
     // ===== STAGE INTRO =====
     } else if (gameState === 'stage_intro') {
