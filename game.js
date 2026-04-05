@@ -4366,33 +4366,11 @@ function updateVsPlayer(p, pKeys, isP2) {
     }
     if (!jumpPressed) p.jumpKeyHeld = false;
 
-    // Melee attack (unlimited)
+    // Melee attack (unlimited, close-range only)
     if (k(pKeys.attack) && !p.isAttacking && p.attackCooldown <= 0) {
         p.isAttacking = true;
         p.attackTimer = p.attackDuration;
         p.attackCooldown = 25;
-        // Charlie's homing ball in VS mode
-        const charType = isP2 ? p2Character : p1Character;
-        if (charType === 'charlie') {
-            const enemyList = isP2 ? p2Enemies : p1Enemies;
-            let nearest = null, bestDist = Infinity;
-            for (const e of enemyList) {
-                if (!e.alive) continue;
-                const dx = (e.x + e.width / 2) - (p.x + p.width / 2);
-                const dy = (e.y + e.height / 2) - (p.y + p.height / 2);
-                const dist = dx * dx + dy * dy;
-                if (dist < bestDist) { bestDist = dist; nearest = e; }
-            }
-            if (nearest) {
-                const projList = isP2 ? p2Projectiles : p1Projectiles;
-                projList.push({
-                    x: p.x + (p.facing === 1 ? p.width + 5 : -10),
-                    y: p.y + p.height / 2,
-                    vx: p.facing * 8, vy: -2, spin: 0, alive: true,
-                    damage: 2, isHoming: true, homingTarget: nearest, charType: 'charlie',
-                });
-            }
-        }
     }
     if (p.isAttacking) {
         p.attackTimer--;
