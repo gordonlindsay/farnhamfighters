@@ -1,7 +1,7 @@
 // ============================================================
 // FARNHAM FIGHTERS — Stage 1 Skeleton
 // ============================================================
-const GAME_VERSION = 'v57';
+const GAME_VERSION = 'v58';
 
 // Global error handler — shows init errors on canvas
 window.onerror = function(msg, src, line) {
