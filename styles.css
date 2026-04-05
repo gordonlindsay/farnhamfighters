@@ -7,11 +7,13 @@
 body {
     background: #1a1a2e;
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
-    height: 100vh;
-    overflow: hidden;
+    min-height: 100vh;
+    overflow: auto;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    padding: 10px 0;
 }
 
 canvas {
@@ -22,6 +24,27 @@ canvas {
     max-height: 100vh;
     width: auto;
     height: auto;
+}
+
+#controls {
+    display: flex;
+    gap: 30px;
+    margin-top: 10px;
+    color: #888;
+    font-size: 12px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.ctrl-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ctrl-col h3 {
+    color: #e94560;
+    font-size: 13px;
+    margin-bottom: 4px;
 }
 
 /* Mobile: hide border, fill screen */

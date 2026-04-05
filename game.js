@@ -682,6 +682,44 @@ function sfxCompanion() {
     setTimeout(() => playTone(660, 0.15, 'triangle', sfxGain, 0.25), 160);
 }
 
+function sfxClawScratch() {
+    if (!audioCtx) return;
+    // Quick scratchy swipe sound
+    playNoise(0.08, sfxGain, 0.2);
+    playTone(800, 0.06, 'sawtooth', sfxGain, 0.15);
+    setTimeout(() => { playNoise(0.06, sfxGain, 0.15); playTone(600, 0.05, 'sawtooth', sfxGain, 0.12); }, 50);
+    setTimeout(() => { playNoise(0.06, sfxGain, 0.12); playTone(400, 0.05, 'sawtooth', sfxGain, 0.1); }, 100);
+}
+
+function sfxMegaBark() {
+    if (!audioCtx) return;
+    // Deep bark then echo ring
+    playTone(150, 0.12, 'square', sfxGain, 0.3);
+    playTone(100, 0.15, 'sawtooth', sfxGain, 0.2);
+    setTimeout(() => playTone(180, 0.1, 'square', sfxGain, 0.25), 80);
+    setTimeout(() => playTone(120, 0.2, 'triangle', sfxGain, 0.15), 150);
+}
+
+function sfxFishtailKick() {
+    if (!audioCtx) return;
+    // Watery splash whoosh
+    playNoise(0.12, sfxGain, 0.15);
+    playTone(300, 0.1, 'triangle', sfxGain, 0.2);
+    setTimeout(() => { playNoise(0.08, sfxGain, 0.1); playTone(500, 0.08, 'sine', sfxGain, 0.15); }, 60);
+}
+
+function sfxFishMunch() {
+    if (!audioCtx) return;
+    // Bubbly heal sound
+    playTone(400, 0.06, 'sine', sfxGain, 0.2);
+    setTimeout(() => playTone(500, 0.06, 'sine', sfxGain, 0.2), 60);
+    setTimeout(() => playTone(600, 0.06, 'sine', sfxGain, 0.2), 120);
+    setTimeout(() => playTone(800, 0.1, 'sine', sfxGain, 0.25), 180);
+    // Bubbles
+    setTimeout(() => playTone(1200, 0.04, 'sine', sfxGain, 0.1), 100);
+    setTimeout(() => playTone(1400, 0.04, 'sine', sfxGain, 0.1), 160);
+}
+
 function sfxLaser() {
     if (!audioCtx) return;
     const osc = audioCtx.createOscillator();
@@ -760,6 +798,15 @@ function stopMusic() {
     currentMusic = null;
 }
 
+// Pause/resume music when tab loses/gains focus
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        for (const key in musicTracks) musicTracks[key].pause();
+    } else if (currentMusic && musicEnabled) {
+        musicTracks[currentMusic].play().catch(() => {});
+    }
+});
+
 function startMusic(stage, forceNew) {
     if (!musicEnabled) { stopMusic(); return; }
     let trackKey;
@@ -800,10 +847,15 @@ function toggleSound() {
 function toggleMusic() {
     musicEnabled = !musicEnabled;
     if (!musicEnabled) {
-        stopMusic();
+        for (const key in musicTracks) musicTracks[key].pause();
     } else if (currentMusic) {
-        // Resume current track
         musicTracks[currentMusic].play().catch(() => {});
+    } else if (gameState === 'title' || gameState === 'select' || gameState === 'level_select') {
+        startMusic('title');
+    } else if (gameState === 'playing' || gameState === 'stage_intro' || gameState === 'stage_complete' || gameState === 'shop') {
+        startMusic(currentStage, true);
+    } else if (gameState === 'boss') {
+        startMusic('boss', true);
     }
 }
 
@@ -974,6 +1026,9 @@ let pausedFromState = 'playing';
 let gameStartTime = 0;
 let gameEndTime = 0;
 let enemiesDefeated = 0;
+let stageKillCounts = [0, 0, 0, 0]; // kills per stage (1-4)
+let stageEnemyCounts = [0, 0, 0, 0]; // total enemies per stage (1-4)
+const KILL_GATE_PCT = 0.6; // must kill 60% of enemies in stage to advance
 
 // ============================================================
 // UPGRADE SYSTEM — spend stickers to power up between stages
@@ -1158,17 +1213,17 @@ let p2Stage = 1;
 let vsStartTime = 0;
 let vsResultsShown = false;
 
-// P2 keyboard controls (arrow keys + / . , for attack/ranged/companion)
+// P2 keyboard controls (arrow keys + nearby right-hand keys)
 const P2_KEYS = {
     left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown',
-    attack: 'Numpad0', ranged: 'NumpadDecimal', jump: 'ArrowUp', block: 'NumpadEnter',
-    special: 'NumpadAdd',
+    attack: 'NumpadDecimal', ranged: 'NumpadEnter', jump: 'ArrowUp', block: 'Numpad0',
+    special: 'NumpadAdd', compQ: 'Numpad7', compE: 'Numpad9',
 };
 // P1 uses WASD + Space(melee) + F(ranged) + B(block) + G(special)
 const P1_KEYS = {
     left: 'KeyA', right: 'KeyD', up: 'KeyW', down: 'KeyS',
     attack: 'Space', ranged: 'Control', jump: 'KeyW', jump2: 'GamepadJump', block: 'Shift',
-    special: 'KeyG',
+    special: 'KeyG', compQ: 'KeyQ', compE: 'KeyE',
 };
 
 // ============================================================
@@ -1372,6 +1427,14 @@ function createEnemies() {
         });
     }
     } // end currentLevel >= 3 check
+
+    // Tag each enemy with its stage and count per stage for kill gate
+    stageEnemyCounts = [0, 0, 0, 0];
+    for (const e of allEnemies) {
+        e.stage = Math.min(3, Math.floor(e.x / STAGE_WIDTH));
+        stageEnemyCounts[e.stage]++;
+    }
+    stageKillCounts = [0, 0, 0, 0];
 
     return allEnemies;
 }
@@ -3629,7 +3692,7 @@ function drawVsSelect() {
                 const txt = isCtrl ? '← → char  ↑↓ diff  ✕ ready' : 'A/D char  W/S diff  SPACE ready';
                 ctx.fillText(txt, px, hintY);
             } else {
-                const txt = isCtrl ? '← → char  ↑↓ diff  ENTER ready' : '← → char  ↑↓ diff  ✕ ready';
+                const txt = isCtrl ? '← → char  ↑↓ diff  ENTER ready' : '← → char  ↑↓ diff  ENTER ready';
                 ctx.fillText(txt, px, hintY);
             }
         }
@@ -4028,6 +4091,18 @@ function updateVsPlayer(p, pKeys, isP2) {
         updateSpecialAbility(p, charType, enemyList, projList);
     }
 
+    // Companion abilities (L1/R1)
+    if (pKeys.compQ && keys[pKeys.compQ] && !p.compQHeld) {
+        useCompanionAbility('Q');
+        p.compQHeld = true;
+    }
+    if (pKeys.compQ && !keys[pKeys.compQ]) p.compQHeld = false;
+    if (pKeys.compE && keys[pKeys.compE] && !p.compEHeld) {
+        useCompanionAbility('E');
+        p.compEHeld = true;
+    }
+    if (pKeys.compE && !keys[pKeys.compE]) p.compEHeld = false;
+
     // Gravity
     p.vy += GRAVITY;
     p.x += p.vx;
@@ -4389,12 +4464,12 @@ function drawVsResults() {
     const p2Completed = p2Finished && !p2Died;
     const p1Time = p1Completed ? Math.floor((p1FinishTime - vsStartTime) / 1000) : 999;
     const p2Time = p2Completed ? Math.floor((p2FinishTime - vsStartTime) / 1000) : 999;
-    const timeBonus1 = p1Completed ? Math.max(0, 300 - p1Time * 2) : 0;
-    const timeBonus2 = p2Completed ? Math.max(0, 300 - p2Time * 2) : 0;
-    const firstBonus1 = (p1Completed && (!p2Completed || p1FinishTime <= p2FinishTime)) ? 200 : 0;
-    const firstBonus2 = (p2Completed && (!p1Completed || p2FinishTime < p1FinishTime)) ? 200 : 0;
-    const total1 = p1StickersCollected * 10 + p1EnemiesDefeated * 25 + timeBonus1 + firstBonus1 + (p1Completed ? 100 : 0);
-    const total2 = p2StickersCollected * 10 + p2EnemiesDefeated * 25 + timeBonus2 + firstBonus2 + (p2Completed ? 100 : 0);
+    const timeBonus1 = p1Completed ? Math.max(0, 150 - p1Time * 1) : 0;
+    const timeBonus2 = p2Completed ? Math.max(0, 150 - p2Time * 1) : 0;
+    const firstBonus1 = (p1Completed && (!p2Completed || p1FinishTime <= p2FinishTime)) ? 100 : 0;
+    const firstBonus2 = (p2Completed && (!p1Completed || p2FinishTime < p1FinishTime)) ? 100 : 0;
+    const total1 = p1StickersCollected * 10 + p1EnemiesDefeated * 50 + timeBonus1 + firstBonus1 + (p1Completed ? 100 : 0);
+    const total2 = p2StickersCollected * 10 + p2EnemiesDefeated * 50 + timeBonus2 + firstBonus2 + (p2Completed ? 100 : 0);
 
     // P1 column
     const col1 = SCREEN_W / 4;
@@ -4410,7 +4485,7 @@ function drawVsResults() {
     // Stats
     const stats = [
         ['Stickers', p1StickersCollected, p2StickersCollected, '×10'],
-        ['Enemies', p1EnemiesDefeated, p2EnemiesDefeated, '×25'],
+        ['Enemies', p1EnemiesDefeated, p2EnemiesDefeated, '×50'],
         ['Finished', p1Died ? 'Died' : p1Completed ? 'Yes (+100)' : 'No', p2Died ? 'Died' : p2Completed ? 'Yes (+100)' : 'No', ''],
         ['Time', p1Completed ? p1Time + 's' : '—', p2Completed ? p2Time + 's' : '—', ''],
         ['Time Bonus', '+' + timeBonus1, '+' + timeBonus2, ''],
@@ -5897,10 +5972,10 @@ function drawHUD() {
     ctx.fill();
     drawHUDHearts();
 
-    // Top-right panel: collectibles
+    // Top-right panel: collectibles + kill gate
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.beginPath();
-    ctx.roundRect(SCREEN_W - 105, 6, 98, 50, 6);
+    ctx.roundRect(SCREEN_W - 105, 6, 98, 70, 6);
     ctx.fill();
 
     ctx.fillStyle = '#f1c40f';
@@ -5911,8 +5986,17 @@ function drawHUD() {
     const ballIcon = CHAR_INFO[selectedCharacter].ballIcon;
     ctx.fillText(ballIcon + ' ×' + player.rangedAmmo, SCREEN_W - 95, 48);
 
+    // Kill gate progress
+    const stageIdx = currentStage - 1;
+    const killReq = Math.ceil(stageEnemyCounts[stageIdx] * KILL_GATE_PCT);
+    const kills = stageKillCounts[stageIdx];
+    const gateOpen = kills >= killReq;
+    ctx.fillStyle = gateOpen ? '#2ecc71' : '#e74c3c';
+    ctx.font = 'bold 12px Segoe UI, sans-serif';
+    ctx.fillText('💀 ' + kills + '/' + killReq + (gateOpen ? ' ✓' : ''), SCREEN_W - 95, 68);
+
     // Special ability cooldown indicator
-    drawSpecialCooldownHUD(player, selectedCharacter, SCREEN_W - 105, 60);
+    drawSpecialCooldownHUD(player, selectedCharacter, SCREEN_W - 105, 76);
 
     // Active companion indicator — show what Q and E do
     if (activeCompanion) {
@@ -6003,15 +6087,17 @@ function drawHUD() {
     }
     ctx.textAlign = 'left';
 
-    // Sound indicator (top-right, below collectibles)
+    // Sound/Music indicator (top-right, below collectibles)
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.beginPath();
-    ctx.roundRect(SCREEN_W - 55, 60, 48, 20, 4);
+    ctx.roundRect(SCREEN_W - 75, 82, 68, 32, 4);
     ctx.fill();
-    ctx.fillStyle = soundEnabled ? 'rgba(255,255,255,0.8)' : 'rgba(255,100,100,0.8)';
-    ctx.font = '11px Segoe UI, sans-serif';
+    ctx.font = '10px Segoe UI, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(soundEnabled ? 'SND ON' : 'MUTED', SCREEN_W - 31, 74);
+    ctx.fillStyle = soundEnabled ? 'rgba(255,255,255,0.8)' : 'rgba(255,100,100,0.8)';
+    ctx.fillText('M SFX ' + (soundEnabled ? 'ON' : 'OFF'), SCREEN_W - 41, 95);
+    ctx.fillStyle = musicEnabled ? 'rgba(255,255,255,0.8)' : 'rgba(255,100,100,0.8)';
+    ctx.fillText('N Music ' + (musicEnabled ? 'ON' : 'OFF'), SCREEN_W - 41, 108);
     ctx.textAlign = 'left';
 
     // Gamepad debug overlay (toggle: Share + L1)
@@ -6107,6 +6193,11 @@ function drawTitleScreen() {
         ctx.font = selected ? 'bold 18px Segoe UI, sans-serif' : '16px Segoe UI, sans-serif';
         ctx.fillText(modes[i], SCREEN_W / 2, my + 5);
     }
+
+    // Sound/music toggle hint
+    ctx.fillStyle = '#777';
+    ctx.font = '11px Segoe UI, sans-serif';
+    ctx.fillText('M = Sound ' + (soundEnabled ? 'ON' : 'OFF') + '    N = Music ' + (musicEnabled ? 'ON' : 'OFF'), SCREEN_W / 2, SCREEN_H - 55);
 
     // Prompt
     const flashAlpha = 0.5 + Math.sin(titleTimer * 0.06) * 0.5;
@@ -6693,12 +6784,21 @@ function updatePlayer() {
     // Update current stage based on player position (never go backwards)
     const newStage = Math.min(4, Math.floor(player.x / STAGE_WIDTH) + 1);
     if (newStage > currentStage && newStage <= 4) {
-        previousStage = currentStage;
-        currentStage = newStage;
-        stageCompleteTimer = STAGE_COMPLETE_DURATION;
-        gameState = 'stage_complete';
-        stopMusic();
-        return;
+        // Kill gate — must defeat enough enemies in current stage to advance
+        const stageIdx = currentStage - 1;
+        const required = Math.ceil(stageEnemyCounts[stageIdx] * KILL_GATE_PCT);
+        if (stageKillCounts[stageIdx] < required) {
+            // Push player back — can't advance yet
+            player.x = currentStage * STAGE_WIDTH - 10;
+            player.vx = -3;
+        } else {
+            previousStage = currentStage;
+            currentStage = newStage;
+            stageCompleteTimer = STAGE_COMPLETE_DURATION;
+            gameState = 'stage_complete';
+            stopMusic();
+            return;
+        }
     }
     // Only update if moving forward — prevents stage going backwards when player drifts
     if (newStage >= currentStage) currentStage = newStage;
@@ -6885,7 +6985,7 @@ function updateEnemies() {
                     spawnParticles(e.x + e.width / 2, e.y + e.height / 2, '#fff', 4, 10, 3);
                     addScreenShake(2, 5);
                     sfxHit();
-                    if (e.health <= 0) { e.alive = false; enemiesDefeated++; spawnEnemyDeathEffect(e); sfxEnemyDeath(); }
+                    if (e.health <= 0) { e.alive = false; enemiesDefeated++; if (e.stage !== undefined) stageKillCounts[e.stage]++; stickersCollected++; spawnEnemyDeathEffect(e); sfxEnemyDeath(); }
                     break;
                 }
             }
@@ -6957,7 +7057,7 @@ function updateProjectiles() {
                 e.x += ball.vx > 0 ? 20 : -20;
                 spawnParticles(e.x + e.width / 2, e.y + e.height / 2, '#fff', 3, 8, 3);
                 sfxHit();
-                if (e.health <= 0) { e.alive = false; enemiesDefeated++; spawnEnemyDeathEffect(e); sfxEnemyDeath(); }
+                if (e.health <= 0) { e.alive = false; enemiesDefeated++; if (e.stage !== undefined) stageKillCounts[e.stage]++; stickersCollected++; spawnEnemyDeathEffect(e); sfxEnemyDeath(); }
                 if (!ball.isWave) { // waves pass through
                     ball.alive = false;
                     break;
@@ -7067,6 +7167,7 @@ function useCompanionAbility(abilityKey) {
                     if (e.health <= 0) e.alive = false;
                 }
             }
+            sfxClawScratch();
             companionCooldown = 90;
         } else if (abilityKey === 'E') {
             // Mega bark — expanding sound wave ring that damages/kills enemies on screen
@@ -7081,6 +7182,7 @@ function useCompanionAbility(abilityKey) {
                 maxTimer: 45,
                 damaged: new Set(), // track which enemies already hit
             });
+            sfxMegaBark();
             companionCooldown = 150;
         }
     } else if (activeCompanion.type === 'fishies') {
@@ -7097,6 +7199,7 @@ function useCompanionAbility(abilityKey) {
                 isWave: true, // special — passes through enemies
                 damage: waveDmg,
             });
+            sfxFishtailKick();
             companionCooldown = 60;
         } else if (abilityKey === 'E') {
             // Fish food munch — level 2 fishies: always full heal, otherwise child=full, adult=+2
@@ -7105,6 +7208,7 @@ function useCompanionAbility(abilityKey) {
             } else {
                 player.health = Math.min(player.maxHealth, player.health + 2);
             }
+            sfxFishMunch();
             companionCooldown = 180;
         }
     }
@@ -7135,7 +7239,7 @@ function updateVisualEffects() {
                     e.health -= 4; // powerful!
                     e.hitFlash = 20;
                     sfxHit();
-                    if (e.health <= 0) { e.alive = false; enemiesDefeated++; spawnEnemyDeathEffect(e); sfxEnemyDeath(); }
+                    if (e.health <= 0) { e.alive = false; enemiesDefeated++; if (e.stage !== undefined) stageKillCounts[e.stage]++; stickersCollected++; spawnEnemyDeathEffect(e); sfxEnemyDeath(); }
                     fx.damaged.add(e);
                 }
             }
@@ -8261,7 +8365,7 @@ function startLevel(levelNum) {
     screenShake = { x: 0, y: 0, intensity: 0, timer: 0 };
     currentStage = 1;
     previousStage = 1;
-    enemiesDefeated = 0;
+    enemiesDefeated = 0; stageKillCounts = [0, 0, 0, 0];
     gameEndTime = 0;
     gameStartTime = Date.now();
     initAmbientParticles();
@@ -8302,7 +8406,7 @@ function restart() {
     screenShake = { x: 0, y: 0, intensity: 0, timer: 0 };
     currentStage = 1;
     previousStage = 1;
-    enemiesDefeated = 0;
+    enemiesDefeated = 0; stageKillCounts = [0, 0, 0, 0];
     resetUpgrades();
     player.speed = 4;
     currentLevel = 1;
@@ -8319,6 +8423,7 @@ function restart() {
 let selectKeyHeld = false;
 let diffKeyHeld = false;
 let muteKeyHeld = false;
+let musicKeyHeld = false;
 let shopEnterHeld = false;
 let shopContinueHeld = false;
 
@@ -8349,12 +8454,17 @@ function gameLoop() {
     }
     if (!keys['Escape']) pauseKeyHeld = false;
 
-    // --- Mute toggle (M key) ---
+    // --- Mute toggle (M = all sound, N = music only) ---
     if (keys['KeyM'] && !muteKeyHeld) {
         muteKeyHeld = true;
         toggleSound();
     }
     if (!keys['KeyM']) muteKeyHeld = false;
+    if (keys['KeyN'] && !musicKeyHeld) {
+        musicKeyHeld = true;
+        toggleMusic();
+    }
+    if (!keys['KeyN']) musicKeyHeld = false;
 
     // ===== TITLE SCREEN =====
     if (gameState === 'title') {
@@ -8442,7 +8552,7 @@ function gameLoop() {
                 stickersCollected = 0;
                 weaponsCollected = 0;
                 player.rangedAmmo = 0;
-                enemiesDefeated = 0;
+                enemiesDefeated = 0; stageKillCounts = [0, 0, 0, 0];
                 gameStartTime = Date.now();
                 previousStage = 1;
                 currentStage = 1;
@@ -8706,11 +8816,11 @@ function gameLoop() {
             if (keys['ArrowUp'] && !p2DiffKeyHeld) { p2Difficulty = 'child'; p2DiffKeyHeld = true; }
             if (keys['ArrowDown'] && !p2DiffKeyHeld) { p2Difficulty = 'adult'; p2DiffKeyHeld = true; }
             if (!(keys['ArrowUp'] || keys['ArrowDown'])) p2DiffKeyHeld = false;
-            // P2 ready: Numpad0, NumpadEnter, or Enter/Space once P1 is already ready (with guard)
-            const p2ReadyKey = keys['Numpad0'] || keys['NumpadEnter'] || (vsP1Ready && (keys['Enter'] || keys['Space']));
+            // P2 ready: NumpadEnter or Numpad0, or Enter/Space once P1 is already ready
+            const p2ReadyKey = keys['NumpadEnter'] || keys['Numpad0'] || (vsP1Ready && (keys['Enter'] || keys['Space']));
             if (p2ReadyKey && !vsP2ConfirmHeld) { vsP2Ready = true; vsP2ConfirmHeld = true; }
         } else {
-            // P2 can un-ready with Delete/Backspace/Escape
+            // P2 can un-ready with Delete or NumpadDecimal or Backspace
             if (keys['Delete'] || keys['NumpadDecimal'] || keys['Backspace']) vsP2Ready = false;
         }
 
