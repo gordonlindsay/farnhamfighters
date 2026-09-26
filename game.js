@@ -496,7 +496,7 @@ function initTouchControls() {
         }
     }, { passive: false });
 
-    // === GAMEPLAY TOUCH BUTTONS (overlay) ===
+    // === TOUCH OVERLAY ===
     const overlay = document.createElement('div');
     overlay.id = 'touchControls';
     touchOverlay = overlay;
@@ -506,10 +506,102 @@ function initTouchControls() {
     `;
     document.body.appendChild(overlay);
 
-    // === SIMPLIFIED 2-BUTTON CONTROLS (mobile only) ===
-    // Left half = JUMP, Right half = ATK (hold for special/ranged)
+    // === MENU CONTROLS: Joystick + OK (shown on menus) ===
+    const joyRadius = 56;
+    const thumbRadius = 24;
+    const joyDeadzone = 0.2;
+    const joystickBase = document.createElement('div');
+    joystickBase.id = 'joystickBase';
+    joystickBase.style.cssText = `
+        position: absolute; left: 16px; bottom: 30px;
+        width: ${joyRadius * 2}px; height: ${joyRadius * 2}px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.08);
+        border: 2px solid rgba(255,255,255,0.25);
+        pointer-events: auto; user-select: none; -webkit-user-select: none;
+    `;
+    const joystickThumb = document.createElement('div');
+    joystickThumb.style.cssText = `
+        position: absolute;
+        left: ${joyRadius - thumbRadius}px; top: ${joyRadius - thumbRadius}px;
+        width: ${thumbRadius * 2}px; height: ${thumbRadius * 2}px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.35);
+        border: 2px solid rgba(255,255,255,0.5);
+        pointer-events: none;
+    `;
+    joystickBase.appendChild(joystickThumb);
+    overlay.appendChild(joystickBase);
+
+    let joystickTouchId = null;
+    function updateJoystick(touchX, touchY) {
+        const rect = joystickBase.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        let dx = touchX - cx;
+        let dy = touchY - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const maxDist = joyRadius - 4;
+        if (dist > maxDist) { dx = (dx / dist) * maxDist; dy = (dy / dist) * maxDist; }
+        joystickThumb.style.left = (joyRadius - thumbRadius + dx) + 'px';
+        joystickThumb.style.top = (joyRadius - thumbRadius + dy) + 'px';
+        const nx = dx / maxDist;
+        const ny = dy / maxDist;
+        keys['KeyA'] = nx < -joyDeadzone;
+        keys['KeyD'] = nx > joyDeadzone;
+        keys['JoystickUp'] = ny < -joyDeadzone;
+        keys['JoystickDown'] = ny > joyDeadzone;
+    }
+    function resetJoystick() {
+        joystickThumb.style.left = (joyRadius - thumbRadius) + 'px';
+        joystickThumb.style.top = (joyRadius - thumbRadius) + 'px';
+        keys['KeyA'] = false;
+        keys['KeyD'] = false;
+        keys['JoystickUp'] = false;
+        keys['JoystickDown'] = false;
+        joystickTouchId = null;
+    }
+    joystickBase.addEventListener('touchstart', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const t = e.changedTouches[0];
+        joystickTouchId = t.identifier;
+        updateJoystick(t.clientX, t.clientY);
+    }, { passive: false });
+    document.addEventListener('touchmove', (e) => {
+        if (joystickTouchId === null) return;
+        for (const t of e.changedTouches) {
+            if (t.identifier === joystickTouchId) { e.preventDefault(); updateJoystick(t.clientX, t.clientY); return; }
+        }
+    }, { passive: false });
+    document.addEventListener('touchend', (e) => {
+        for (const t of e.changedTouches) { if (t.identifier === joystickTouchId) { resetJoystick(); return; } }
+    }, { passive: false });
+    document.addEventListener('touchcancel', (e) => {
+        for (const t of e.changedTouches) { if (t.identifier === joystickTouchId) { resetJoystick(); return; } }
+    }, { passive: false });
+
+    const okBtn = document.createElement('div');
+    okBtn.id = 'tb_enter';
+    okBtn.textContent = 'OK';
+    okBtn.style.cssText = `
+        position: absolute; right: 16px; bottom: 40px;
+        width: 80px; height: 80px;
+        background: rgba(255,255,255,0.12);
+        border: 2px solid rgba(255,255,255,0.35);
+        border-radius: 50%;
+        color: rgba(255,255,255,0.65);
+        font: bold 18px sans-serif;
+        display: flex; align-items: center; justify-content: center;
+        pointer-events: auto; user-select: none; -webkit-user-select: none;
+    `;
+    okBtn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); keys['Enter'] = true; okBtn.style.background = 'rgba(255,255,255,0.35)'; }, { passive: false });
+    okBtn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); keys['Enter'] = false; okBtn.style.background = 'rgba(255,255,255,0.12)'; }, { passive: false });
+    okBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); e.stopPropagation(); keys['Enter'] = false; okBtn.style.background = 'rgba(255,255,255,0.12)'; }, { passive: false });
+    overlay.appendChild(okBtn);
+
+    // === GAMEPLAY CONTROLS: JUMP + ATK (shown during gameplay) ===
     let atkHoldStart = 0;
-    const ATK_HOLD_THRESHOLD = 250; // ms — hold longer than this for special
+    const ATK_HOLD_THRESHOLD = 250;
 
     const jumpBtn = document.createElement('div');
     jumpBtn.id = 'tb_jump';
@@ -525,21 +617,9 @@ function initTouchControls() {
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
     `;
-    jumpBtn.addEventListener('touchstart', (e) => {
-        e.preventDefault(); e.stopPropagation();
-        keys['KeyW'] = true;
-        jumpBtn.style.background = 'rgba(255,255,255,0.3)';
-    }, { passive: false });
-    jumpBtn.addEventListener('touchend', (e) => {
-        e.preventDefault(); e.stopPropagation();
-        keys['KeyW'] = false;
-        jumpBtn.style.background = 'rgba(255,255,255,0.12)';
-    }, { passive: false });
-    jumpBtn.addEventListener('touchcancel', (e) => {
-        e.preventDefault(); e.stopPropagation();
-        keys['KeyW'] = false;
-        jumpBtn.style.background = 'rgba(255,255,255,0.12)';
-    }, { passive: false });
+    jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); keys['KeyW'] = true; jumpBtn.style.background = 'rgba(255,255,255,0.3)'; }, { passive: false });
+    jumpBtn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); keys['KeyW'] = false; jumpBtn.style.background = 'rgba(255,255,255,0.12)'; }, { passive: false });
+    jumpBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); e.stopPropagation(); keys['KeyW'] = false; jumpBtn.style.background = 'rgba(255,255,255,0.12)'; }, { passive: false });
     overlay.appendChild(jumpBtn);
 
     const atkBtn = document.createElement('div');
@@ -581,7 +661,6 @@ function initTouchControls() {
     }, { passive: false });
     overlay.appendChild(atkBtn);
 
-    // ATK hold indicator — switch label to SPL while held long enough
     setInterval(() => {
         if (atkHoldStart > 0 && Date.now() - atkHoldStart >= ATK_HOLD_THRESHOLD) {
             atkBtn.textContent = 'SPL';
@@ -591,36 +670,25 @@ function initTouchControls() {
         }
     }, 50);
 
-    // Top bar utility buttons
-    const buttons = [
-        { id: 'tb_pause',  label: '⏸',  key: 'Escape', side: 'right', bottom: -1, top: 6, right: 8,  w: 40, h: 32 },
-        { id: 'tb_enter',  label: 'OK',  key: 'Enter',  side: 'right', bottom: -1, top: 6, right: 56, w: 48, h: 32 },
-    ];
-
-    buttons.forEach(b => {
-        const btn = document.createElement('div');
-        btn.id = b.id;
-        btn.textContent = b.label;
-        let posStyle = `right: ${b.right}px; top: ${b.top}px;`;
-        btn.style.cssText = `
-            position: absolute; ${posStyle}
-            width: ${b.w}px; height: ${b.h}px;
-            background: rgba(255,255,255,0.12);
-            border: 2px solid rgba(255,255,255,0.35);
-            border-radius: 8px;
-            color: rgba(255,255,255,0.65);
-            font: bold 11px sans-serif;
-            display: flex; align-items: center; justify-content: center;
-            pointer-events: auto; user-select: none; -webkit-user-select: none;
-        `;
-
-        const press = (e) => { e.preventDefault(); e.stopPropagation(); keys[b.key] = true; btn.style.background = 'rgba(255,255,255,0.35)'; };
-        const release = (e) => { e.preventDefault(); e.stopPropagation(); keys[b.key] = false; btn.style.background = 'rgba(255,255,255,0.12)'; };
-        btn.addEventListener('touchstart', press, { passive: false });
-        btn.addEventListener('touchend', release, { passive: false });
-        btn.addEventListener('touchcancel', release, { passive: false });
-        overlay.appendChild(btn);
-    });
+    // === PAUSE BUTTON (shown during gameplay) ===
+    const pauseBtn = document.createElement('div');
+    pauseBtn.id = 'tb_pause';
+    pauseBtn.textContent = '⏸';
+    pauseBtn.style.cssText = `
+        position: absolute; right: 8px; top: 6px;
+        width: 40px; height: 32px;
+        background: rgba(255,255,255,0.12);
+        border: 2px solid rgba(255,255,255,0.35);
+        border-radius: 8px;
+        color: rgba(255,255,255,0.65);
+        font: bold 11px sans-serif;
+        display: flex; align-items: center; justify-content: center;
+        pointer-events: auto; user-select: none; -webkit-user-select: none;
+    `;
+    pauseBtn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); keys['Escape'] = true; pauseBtn.style.background = 'rgba(255,255,255,0.35)'; }, { passive: false });
+    pauseBtn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); keys['Escape'] = false; pauseBtn.style.background = 'rgba(255,255,255,0.12)'; }, { passive: false });
+    pauseBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); e.stopPropagation(); keys['Escape'] = false; pauseBtn.style.background = 'rgba(255,255,255,0.12)'; }, { passive: false });
+    overlay.appendChild(pauseBtn);
 
     // === FULLSCREEN BUTTON ===
     const fsBtn = document.createElement('div');
@@ -9131,10 +9199,19 @@ function gameLoop() {
     frameTime = Date.now();
     pollGamepad(); // check controller input each frame
 
-    // Hide all touch buttons except during active gameplay on mobile
-    if (touchControlsActive && touchOverlay) {
+    // Toggle menu vs gameplay touch controls
+    if (touchControlsActive) {
         const inGameplay = (gameState === 'playing' || gameState === 'boss' || gameState === 'vs_playing' || gameState === 'paused');
-        touchOverlay.style.display = inGameplay ? 'block' : 'none';
+        const jb = document.getElementById('joystickBase');
+        const ok = document.getElementById('tb_enter');
+        const jmp = document.getElementById('tb_jump');
+        const atk = document.getElementById('tb_attack');
+        const pau = document.getElementById('tb_pause');
+        if (jb) jb.style.display = inGameplay ? 'none' : 'block';
+        if (ok) ok.style.display = inGameplay ? 'none' : 'flex';
+        if (jmp) jmp.style.display = inGameplay ? 'flex' : 'none';
+        if (atk) atk.style.display = inGameplay ? 'flex' : 'none';
+        if (pau) pau.style.display = inGameplay ? 'flex' : 'none';
     }
 
     ctx.clearRect(0, 0, SCREEN_W, SCREEN_H);
