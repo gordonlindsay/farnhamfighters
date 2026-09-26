@@ -516,8 +516,8 @@ function initTouchControls() {
         position: absolute; left: 16px; bottom: 30px;
         width: ${joyRadius * 2}px; height: ${joyRadius * 2}px;
         border-radius: 50%;
-        background: rgba(255,255,255,0.08);
-        border: 2px solid rgba(255,255,255,0.25);
+        background: rgba(0,0,0,0.35);
+        border: 2px solid rgba(255,255,255,0.5);
         pointer-events: auto; user-select: none; -webkit-user-select: none;
     `;
     const joystickThumb = document.createElement('div');
@@ -526,8 +526,8 @@ function initTouchControls() {
         left: ${joyRadius - thumbRadius}px; top: ${joyRadius - thumbRadius}px;
         width: ${thumbRadius * 2}px; height: ${thumbRadius * 2}px;
         border-radius: 50%;
-        background: rgba(255,255,255,0.35);
-        border: 2px solid rgba(255,255,255,0.5);
+        background: rgba(255,255,255,0.5);
+        border: 2px solid rgba(255,255,255,0.7);
         pointer-events: none;
     `;
     joystickBase.appendChild(joystickThumb);
@@ -586,17 +586,18 @@ function initTouchControls() {
     okBtn.style.cssText = `
         position: absolute; right: 16px; bottom: 40px;
         width: 80px; height: 80px;
-        background: rgba(255,255,255,0.12);
-        border: 2px solid rgba(255,255,255,0.35);
+        background: rgba(0,0,0,0.4);
+        border: 2px solid rgba(255,255,255,0.6);
         border-radius: 50%;
-        color: rgba(255,255,255,0.65);
+        color: rgba(255,255,255,0.9);
         font: bold 18px sans-serif;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.5);
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
     `;
-    okBtn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); keys['Enter'] = true; okBtn.style.background = 'rgba(255,255,255,0.35)'; }, { passive: false });
-    okBtn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); keys['Enter'] = false; okBtn.style.background = 'rgba(255,255,255,0.12)'; }, { passive: false });
-    okBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); e.stopPropagation(); keys['Enter'] = false; okBtn.style.background = 'rgba(255,255,255,0.12)'; }, { passive: false });
+    okBtn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); keys['Enter'] = true; okBtn.style.background = 'rgba(255,255,255,0.25)'; }, { passive: false });
+    okBtn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); keys['Enter'] = false; okBtn.style.background = 'rgba(0,0,0,0.4)'; }, { passive: false });
+    okBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); e.stopPropagation(); keys['Enter'] = false; okBtn.style.background = 'rgba(0,0,0,0.4)'; }, { passive: false });
     overlay.appendChild(okBtn);
 
     // === GAMEPLAY CONTROLS: JUMP + ATK (shown during gameplay) ===
@@ -609,17 +610,18 @@ function initTouchControls() {
     jumpBtn.style.cssText = `
         position: absolute; left: 8px; bottom: 12px;
         width: 44%; height: 45%;
-        background: rgba(255,255,255,0.12);
-        border: 2px solid rgba(255,255,255,0.3);
+        background: rgba(0,0,0,0.35);
+        border: 2px solid rgba(255,255,255,0.5);
         border-radius: 16px;
-        color: rgba(255,255,255,0.6);
+        color: rgba(255,255,255,0.9);
         font: bold 20px sans-serif;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.5);
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
     `;
-    jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); keys['KeyW'] = true; jumpBtn.style.background = 'rgba(255,255,255,0.3)'; }, { passive: false });
-    jumpBtn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); keys['KeyW'] = false; jumpBtn.style.background = 'rgba(255,255,255,0.12)'; }, { passive: false });
-    jumpBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); e.stopPropagation(); keys['KeyW'] = false; jumpBtn.style.background = 'rgba(255,255,255,0.12)'; }, { passive: false });
+    jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); keys['KeyW'] = true; jumpBtn.style.background = 'rgba(255,255,255,0.15)'; }, { passive: false });
+    jumpBtn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); keys['KeyW'] = false; jumpBtn.style.background = 'rgba(0,0,0,0.35)'; }, { passive: false });
+    jumpBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); e.stopPropagation(); keys['KeyW'] = false; jumpBtn.style.background = 'rgba(0,0,0,0.35)'; }, { passive: false });
     overlay.appendChild(jumpBtn);
 
     const atkBtn = document.createElement('div');
@@ -628,11 +630,12 @@ function initTouchControls() {
     atkBtn.style.cssText = `
         position: absolute; right: 8px; bottom: 12px;
         width: 44%; height: 45%;
-        background: rgba(255,255,255,0.12);
-        border: 2px solid rgba(255,255,255,0.3);
+        background: rgba(0,0,0,0.35);
+        border: 2px solid rgba(255,255,255,0.5);
         border-radius: 16px;
-        color: rgba(255,255,255,0.6);
+        color: rgba(255,255,255,0.9);
         font: bold 20px sans-serif;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.5);
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
     `;
@@ -640,7 +643,7 @@ function initTouchControls() {
         e.preventDefault(); e.stopPropagation();
         atkHoldStart = Date.now();
         keys['Space'] = true;
-        atkBtn.style.background = 'rgba(255,255,255,0.3)';
+        atkBtn.style.background = 'rgba(255,255,255,0.15)';
     }, { passive: false });
     atkBtn.addEventListener('touchend', (e) => {
         e.preventDefault(); e.stopPropagation();
@@ -650,13 +653,13 @@ function initTouchControls() {
             keys['Control'] = true;
             setTimeout(() => { keys['Control'] = false; }, 100);
         }
-        atkBtn.style.background = 'rgba(255,255,255,0.12)';
+        atkBtn.style.background = 'rgba(0,0,0,0.35)';
         atkHoldStart = 0;
     }, { passive: false });
     atkBtn.addEventListener('touchcancel', (e) => {
         e.preventDefault(); e.stopPropagation();
         keys['Space'] = false;
-        atkBtn.style.background = 'rgba(255,255,255,0.12)';
+        atkBtn.style.background = 'rgba(0,0,0,0.35)';
         atkHoldStart = 0;
     }, { passive: false });
     overlay.appendChild(atkBtn);
@@ -664,7 +667,7 @@ function initTouchControls() {
     setInterval(() => {
         if (atkHoldStart > 0 && Date.now() - atkHoldStart >= ATK_HOLD_THRESHOLD) {
             atkBtn.textContent = 'SPL';
-            atkBtn.style.background = 'rgba(233,69,96,0.3)';
+            atkBtn.style.background = 'rgba(233,69,96,0.5)';
         } else {
             atkBtn.textContent = 'ATK';
         }
@@ -677,17 +680,17 @@ function initTouchControls() {
     pauseBtn.style.cssText = `
         position: absolute; right: 8px; top: 6px;
         width: 40px; height: 32px;
-        background: rgba(255,255,255,0.12);
-        border: 2px solid rgba(255,255,255,0.35);
+        background: rgba(0,0,0,0.4);
+        border: 2px solid rgba(255,255,255,0.5);
         border-radius: 8px;
-        color: rgba(255,255,255,0.65);
+        color: rgba(255,255,255,0.9);
         font: bold 11px sans-serif;
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
     `;
-    pauseBtn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); keys['Escape'] = true; pauseBtn.style.background = 'rgba(255,255,255,0.35)'; }, { passive: false });
-    pauseBtn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); keys['Escape'] = false; pauseBtn.style.background = 'rgba(255,255,255,0.12)'; }, { passive: false });
-    pauseBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); e.stopPropagation(); keys['Escape'] = false; pauseBtn.style.background = 'rgba(255,255,255,0.12)'; }, { passive: false });
+    pauseBtn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); keys['Escape'] = true; pauseBtn.style.background = 'rgba(255,255,255,0.25)'; }, { passive: false });
+    pauseBtn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); keys['Escape'] = false; pauseBtn.style.background = 'rgba(0,0,0,0.4)'; }, { passive: false });
+    pauseBtn.addEventListener('touchcancel', (e) => { e.preventDefault(); e.stopPropagation(); keys['Escape'] = false; pauseBtn.style.background = 'rgba(0,0,0,0.4)'; }, { passive: false });
     overlay.appendChild(pauseBtn);
 
     // === FULLSCREEN BUTTON ===
@@ -697,10 +700,10 @@ function initTouchControls() {
     fsBtn.style.cssText = `
         position: absolute; top: 6px; right: 112px;
         width: 40px; height: 32px;
-        background: rgba(255,255,255,0.12);
-        border: 2px solid rgba(255,255,255,0.35);
+        background: rgba(0,0,0,0.4);
+        border: 2px solid rgba(255,255,255,0.5);
         border-radius: 8px;
-        color: rgba(255,255,255,0.65);
+        color: rgba(255,255,255,0.9);
         font: bold 16px sans-serif;
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
@@ -724,10 +727,10 @@ function initTouchControls() {
     sndBtn.style.cssText = `
         position: fixed; top: 6px; left: 8px;
         width: 40px; height: 32px;
-        background: rgba(255,255,255,0.12);
-        border: 2px solid rgba(255,255,255,0.35);
+        background: rgba(0,0,0,0.4);
+        border: 2px solid rgba(255,255,255,0.5);
         border-radius: 8px;
-        color: rgba(255,255,255,0.65);
+        color: rgba(255,255,255,0.9);
         font: 16px sans-serif;
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
@@ -746,10 +749,10 @@ function initTouchControls() {
     musBtn.style.cssText = `
         position: fixed; top: 6px; left: 56px;
         width: 40px; height: 32px;
-        background: rgba(255,255,255,0.12);
-        border: 2px solid rgba(255,255,255,0.35);
+        background: rgba(0,0,0,0.4);
+        border: 2px solid rgba(255,255,255,0.5);
         border-radius: 8px;
-        color: rgba(255,255,255,0.65);
+        color: rgba(255,255,255,0.9);
         font: 16px sans-serif;
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
