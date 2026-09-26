@@ -1,7 +1,7 @@
 // ============================================================
 // FARNHAM FIGHTERS — Stage 1 Skeleton
 // ============================================================
-const GAME_VERSION = 'v63';
+const GAME_VERSION = 'v64';
 
 // ============================================================
 // ACHIEVEMENTS SYSTEM
@@ -506,105 +506,90 @@ function initTouchControls() {
     `;
     document.body.appendChild(overlay);
 
-    // === VIRTUAL JOYSTICK (bottom-left) ===
-    const joystickBase = document.createElement('div');
-    joystickBase.id = 'joystickBase';
-    const joyRadius = 56; // base radius
-    const thumbRadius = 24; // thumb radius
-    const joyDeadzone = 0.2; // ignore tiny movements
-    joystickBase.style.cssText = `
-        position: absolute; left: 16px; bottom: 30px;
-        width: ${joyRadius * 2}px; height: ${joyRadius * 2}px;
-        border-radius: 50%;
-        background: rgba(255,255,255,0.08);
-        border: 2px solid rgba(255,255,255,0.25);
+    // === SIMPLIFIED 2-BUTTON CONTROLS (mobile only) ===
+    // Left half = JUMP, Right half = ATK (hold for special/ranged)
+    let atkHoldStart = 0;
+    const ATK_HOLD_THRESHOLD = 250; // ms — hold longer than this for special
+
+    const jumpBtn = document.createElement('div');
+    jumpBtn.id = 'tb_jump';
+    jumpBtn.textContent = 'JUMP';
+    jumpBtn.style.cssText = `
+        position: absolute; left: 0; bottom: 0;
+        width: 50%; height: 55%;
+        background: rgba(255,255,255,0.04);
+        border-right: 1px solid rgba(255,255,255,0.1);
+        color: rgba(255,255,255,0.35);
+        font: bold 18px sans-serif;
+        display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
     `;
-    const joystickThumb = document.createElement('div');
-    joystickThumb.id = 'joystickThumb';
-    joystickThumb.style.cssText = `
-        position: absolute;
-        left: ${joyRadius - thumbRadius}px; top: ${joyRadius - thumbRadius}px;
-        width: ${thumbRadius * 2}px; height: ${thumbRadius * 2}px;
-        border-radius: 50%;
-        background: rgba(255,255,255,0.35);
-        border: 2px solid rgba(255,255,255,0.5);
-        pointer-events: none;
-    `;
-    joystickBase.appendChild(joystickThumb);
-    overlay.appendChild(joystickBase);
-
-    let joystickTouchId = null;
-
-    function updateJoystick(touchX, touchY) {
-        const rect = joystickBase.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        let dx = touchX - cx;
-        let dy = touchY - cy;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const maxDist = joyRadius - 4;
-        if (dist > maxDist) { dx = (dx / dist) * maxDist; dy = (dy / dist) * maxDist; }
-        joystickThumb.style.left = (joyRadius - thumbRadius + dx) + 'px';
-        joystickThumb.style.top = (joyRadius - thumbRadius + dy) + 'px';
-        const nx = dx / maxDist; // normalised -1 to 1
-        const ny = dy / maxDist;
-        keys['KeyA'] = nx < -joyDeadzone;
-        keys['KeyD'] = nx > joyDeadzone;
-        keys['JoystickUp'] = ny < -joyDeadzone;
-        keys['JoystickDown'] = ny > joyDeadzone;
-    }
-
-    function resetJoystick() {
-        joystickThumb.style.left = (joyRadius - thumbRadius) + 'px';
-        joystickThumb.style.top = (joyRadius - thumbRadius) + 'px';
-        keys['KeyA'] = false;
-        keys['KeyD'] = false;
-        keys['JoystickUp'] = false;
-        keys['JoystickDown'] = false;
-        joystickTouchId = null;
-    }
-
-    joystickBase.addEventListener('touchstart', (e) => {
+    jumpBtn.addEventListener('touchstart', (e) => {
         e.preventDefault(); e.stopPropagation();
-        const t = e.changedTouches[0];
-        joystickTouchId = t.identifier;
-        updateJoystick(t.clientX, t.clientY);
+        keys['KeyW'] = true;
+        jumpBtn.style.background = 'rgba(255,255,255,0.15)';
     }, { passive: false });
+    jumpBtn.addEventListener('touchend', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        keys['KeyW'] = false;
+        jumpBtn.style.background = 'rgba(255,255,255,0.04)';
+    }, { passive: false });
+    jumpBtn.addEventListener('touchcancel', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        keys['KeyW'] = false;
+        jumpBtn.style.background = 'rgba(255,255,255,0.04)';
+    }, { passive: false });
+    overlay.appendChild(jumpBtn);
 
-    // Joystick move/end listeners on document so dragging outside the base still works
-    document.addEventListener('touchmove', (e) => {
-        if (joystickTouchId === null) return;
-        for (const t of e.changedTouches) {
-            if (t.identifier === joystickTouchId) {
-                e.preventDefault();
-                updateJoystick(t.clientX, t.clientY);
-                return;
-            }
+    const atkBtn = document.createElement('div');
+    atkBtn.id = 'tb_attack';
+    atkBtn.textContent = 'ATK';
+    atkBtn.style.cssText = `
+        position: absolute; right: 0; bottom: 0;
+        width: 50%; height: 55%;
+        background: rgba(255,255,255,0.04);
+        color: rgba(255,255,255,0.35);
+        font: bold 18px sans-serif;
+        display: flex; align-items: center; justify-content: center;
+        pointer-events: auto; user-select: none; -webkit-user-select: none;
+    `;
+    atkBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        atkHoldStart = Date.now();
+        keys['Space'] = true;
+        atkBtn.style.background = 'rgba(255,255,255,0.15)';
+    }, { passive: false });
+    atkBtn.addEventListener('touchend', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const held = Date.now() - atkHoldStart;
+        keys['Space'] = false;
+        if (held >= ATK_HOLD_THRESHOLD) {
+            keys['Control'] = true;
+            setTimeout(() => { keys['Control'] = false; }, 100);
         }
+        atkBtn.style.background = 'rgba(255,255,255,0.04)';
+        atkHoldStart = 0;
     }, { passive: false });
+    atkBtn.addEventListener('touchcancel', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        keys['Space'] = false;
+        atkBtn.style.background = 'rgba(255,255,255,0.04)';
+        atkHoldStart = 0;
+    }, { passive: false });
+    overlay.appendChild(atkBtn);
 
-    document.addEventListener('touchend', (e) => {
-        for (const t of e.changedTouches) {
-            if (t.identifier === joystickTouchId) { resetJoystick(); return; }
+    // ATK hold indicator — switch label to SPL while held long enough
+    setInterval(() => {
+        if (atkHoldStart > 0 && Date.now() - atkHoldStart >= ATK_HOLD_THRESHOLD) {
+            atkBtn.textContent = 'SPL';
+            atkBtn.style.background = 'rgba(233,69,96,0.3)';
+        } else {
+            atkBtn.textContent = 'ATK';
         }
-    }, { passive: false });
+    }, 50);
 
-    document.addEventListener('touchcancel', (e) => {
-        for (const t of e.changedTouches) {
-            if (t.identifier === joystickTouchId) { resetJoystick(); return; }
-        }
-    }, { passive: false });
-
+    // Top bar utility buttons
     const buttons = [
-        // Action buttons (bottom-right) — controller diamond: JUMP top, ATK left, THROW/SPL right, BLK bottom
-        { id: 'tb_jump',    label: 'JUMP',  key: 'KeyW',     side: 'right', bottom: 140, right: 70,  w: 64, h: 64, round: true },
-        { id: 'tb_block',   label: 'BLK',   key: 'Shift',    side: 'right', bottom: 80,  right: 135, w: 56, h: 56, round: true },
-        { id: 'tb_throw',   label: 'SPL',   key: 'Control',  side: 'right', bottom: 80,  right: 10,  w: 56, h: 56, round: true },
-        { id: 'tb_attack',  label: 'ATK',   key: 'Space',    side: 'right', bottom: 20,  right: 70,  w: 56, h: 56, round: true },
-        // Companion special (bottom-left, above joystick)
-        { id: 'tb_compQ',   label: '🐾',   key: 'KeyQ',     side: 'left',  bottom: 165, left: 40,  w: 56, h: 56, round: true },
-        // Top bar: pause + OK + fullscreen
         { id: 'tb_pause',  label: '⏸',  key: 'Escape', side: 'right', bottom: -1, top: 6, right: 8,  w: 40, h: 32 },
         { id: 'tb_enter',  label: 'OK',  key: 'Enter',  side: 'right', bottom: -1, top: 6, right: 56, w: 48, h: 32 },
     ];
@@ -613,22 +598,15 @@ function initTouchControls() {
         const btn = document.createElement('div');
         btn.id = b.id;
         btn.textContent = b.label;
-        const isRound = b.round;
-        let posStyle = '';
-        if (b.side === 'left') {
-            posStyle = `left: ${b.left}px; bottom: ${b.bottom}px;`;
-        } else {
-            posStyle = `right: ${b.right}px;`;
-            posStyle += b.top !== undefined ? `top: ${b.top}px;` : `bottom: ${b.bottom}px;`;
-        }
+        let posStyle = `right: ${b.right}px; top: ${b.top}px;`;
         btn.style.cssText = `
             position: absolute; ${posStyle}
             width: ${b.w}px; height: ${b.h}px;
             background: rgba(255,255,255,0.12);
             border: 2px solid rgba(255,255,255,0.35);
-            ${isRound ? 'border-radius: 50%;' : 'border-radius: 8px;'}
+            border-radius: 8px;
             color: rgba(255,255,255,0.65);
-            font: bold ${b.h > 50 ? 13 : 11}px sans-serif;
+            font: bold 11px sans-serif;
             display: flex; align-items: center; justify-content: center;
             pointer-events: auto; user-select: none; -webkit-user-select: none;
         `;
@@ -638,16 +616,6 @@ function initTouchControls() {
         btn.addEventListener('touchstart', press, { passive: false });
         btn.addEventListener('touchend', release, { passive: false });
         btn.addEventListener('touchcancel', release, { passive: false });
-        btn.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-            const touch = e.touches[0];
-            const rect = btn.getBoundingClientRect();
-            if (touch.clientX < rect.left || touch.clientX > rect.right ||
-                touch.clientY < rect.top || touch.clientY > rect.bottom) {
-                keys[b.key] = false;
-                btn.style.background = 'rgba(255,255,255,0.12)';
-            }
-        }, { passive: false });
         overlay.appendChild(btn);
     });
 
@@ -678,12 +646,12 @@ function initTouchControls() {
     }, { passive: false });
     overlay.appendChild(fsBtn);
 
-    // === SOUND/MUSIC TOGGLE BUTTONS ===
+    // === SOUND/MUSIC TOGGLE BUTTONS (always visible, outside overlay) ===
     const sndBtn = document.createElement('div');
     sndBtn.id = 'tb_sound';
     sndBtn.textContent = '🔊';
     sndBtn.style.cssText = `
-        position: absolute; top: 6px; left: 8px;
+        position: fixed; top: 6px; left: 8px;
         width: 40px; height: 32px;
         background: rgba(255,255,255,0.12);
         border: 2px solid rgba(255,255,255,0.35);
@@ -692,19 +660,20 @@ function initTouchControls() {
         font: 16px sans-serif;
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
+        z-index: 1001;
     `;
     sndBtn.addEventListener('touchstart', (e) => {
         e.preventDefault(); e.stopPropagation();
         toggleSound();
         sndBtn.textContent = soundEnabled ? '🔊' : '🔇';
     }, { passive: false });
-    overlay.appendChild(sndBtn);
+    document.body.appendChild(sndBtn);
 
     const musBtn = document.createElement('div');
     musBtn.id = 'tb_music';
     musBtn.textContent = '🎵';
     musBtn.style.cssText = `
-        position: absolute; top: 6px; left: 56px;
+        position: fixed; top: 6px; left: 56px;
         width: 40px; height: 32px;
         background: rgba(255,255,255,0.12);
         border: 2px solid rgba(255,255,255,0.35);
@@ -713,13 +682,14 @@ function initTouchControls() {
         font: 16px sans-serif;
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
+        z-index: 1001;
     `;
     musBtn.addEventListener('touchstart', (e) => {
         e.preventDefault(); e.stopPropagation();
         toggleMusic();
         musBtn.style.opacity = musicEnabled ? '1' : '0.4';
     }, { passive: false });
-    overlay.appendChild(musBtn);
+    document.body.appendChild(musBtn);
 
     // === PORTRAIT MODE WARNING ===
     const rotateMsg = document.createElement('div');
@@ -4618,7 +4588,8 @@ function updateVsPlayer(p, pKeys, isP2) {
     if (p.compCooldown > 0) p.compCooldown--;
     if (vsComp && p.compCooldown <= 0) {
         const vsEnemies = isP2 ? p2Enemies : p1Enemies;
-        if (pKeys.compQ && k(pKeys.compQ) && !p.compQHeld) {
+        const vsCompTriggered = (pKeys.compQ && k(pKeys.compQ)) || (touchControlsActive && !isP2);
+        if (vsCompTriggered && !p.compQHeld) {
             // Screen-clear: kill all on-screen enemies for this player
             const cam = isP2 ? cameraX2 : cameraX;
             const screenLeft = cam;
@@ -4644,7 +4615,9 @@ function updateVsPlayer(p, pKeys, isP2) {
             p.compQHeld = true;
         }
     }
-    if (pKeys.compQ && !k(pKeys.compQ)) p.compQHeld = false;
+    if (touchControlsActive && !isP2) {
+        if (p.compCooldown > 0) p.compQHeld = false;
+    } else if (pKeys.compQ && !k(pKeys.compQ)) p.compQHeld = false;
 
     // Gravity
     p.vy += GRAVITY;
@@ -6777,7 +6750,7 @@ function drawHUD() {
     const specName = CHAR_INFO[selectedCharacter].special.name;
     const compHint = activeCompanion ? '   Q Pet Special' : '';
     if (touchControlsActive) {
-        // Don't show keyboard hints on mobile — touch buttons are on screen
+        ctx.fillText('JUMP + ATK  •  Hold ATK for ' + specName, SCREEN_W / 2, SCREEN_H - 9);
     } else if (gamepadConnected) {
         ctx.fillText('Stick Move   △ Jump   ✕ ' + attackName + '   ○ Throw   □ Block   R2 ' + specName + (activeCompanion ? '   L1 Pet Special' : ''), SCREEN_W / 2, SCREEN_H - 9);
     } else {
@@ -7299,6 +7272,7 @@ function rectCollision(a, b) {
            a.y + a.height > b.y;
 }
 
+
 function updatePlayer() {
     const wasInAir = !player.onGround;
     // Horizontal movement (keyboard + gamepad stick)
@@ -7399,12 +7373,13 @@ function updatePlayer() {
         player._ammoRegenTimer = 0;
     }
 
-    // Companion special (screen-clear)
-    if (keys['KeyQ'] && !player.compQHeld) {
+    // Companion special (screen-clear) — auto-fire on mobile when ready
+    const compTriggered = keys['KeyQ'] || (touchControlsActive && activeCompanion && companionCooldown <= 0);
+    if (compTriggered && !player.compQHeld) {
         useCompanionAbility();
         player.compQHeld = true;
     }
-    if (!keys['KeyQ']) player.compQHeld = false;
+    if (!compTriggered) player.compQHeld = false;
 
     // Gravity
     player.vy += GRAVITY;
@@ -9152,6 +9127,13 @@ function gameLoop() {
   try {
     frameTime = Date.now();
     pollGamepad(); // check controller input each frame
+
+    // Hide all touch buttons except during active gameplay on mobile
+    if (touchControlsActive && touchOverlay) {
+        const inGameplay = (gameState === 'playing' || gameState === 'boss' || gameState === 'vs_playing' || gameState === 'paused');
+        touchOverlay.style.display = inGameplay ? 'block' : 'none';
+    }
+
     ctx.clearRect(0, 0, SCREEN_W, SCREEN_H);
     updateScreenShake();
     updateParticles();
