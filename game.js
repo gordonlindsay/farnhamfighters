@@ -515,29 +515,30 @@ function initTouchControls() {
     jumpBtn.id = 'tb_jump';
     jumpBtn.textContent = 'JUMP';
     jumpBtn.style.cssText = `
-        position: absolute; left: 0; bottom: 0;
-        width: 50%; height: 55%;
-        background: rgba(255,255,255,0.04);
-        border-right: 1px solid rgba(255,255,255,0.1);
-        color: rgba(255,255,255,0.35);
-        font: bold 18px sans-serif;
+        position: absolute; left: 8px; bottom: 12px;
+        width: 44%; height: 45%;
+        background: rgba(255,255,255,0.12);
+        border: 2px solid rgba(255,255,255,0.3);
+        border-radius: 16px;
+        color: rgba(255,255,255,0.6);
+        font: bold 20px sans-serif;
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
     `;
     jumpBtn.addEventListener('touchstart', (e) => {
         e.preventDefault(); e.stopPropagation();
         keys['KeyW'] = true;
-        jumpBtn.style.background = 'rgba(255,255,255,0.15)';
+        jumpBtn.style.background = 'rgba(255,255,255,0.3)';
     }, { passive: false });
     jumpBtn.addEventListener('touchend', (e) => {
         e.preventDefault(); e.stopPropagation();
         keys['KeyW'] = false;
-        jumpBtn.style.background = 'rgba(255,255,255,0.04)';
+        jumpBtn.style.background = 'rgba(255,255,255,0.12)';
     }, { passive: false });
     jumpBtn.addEventListener('touchcancel', (e) => {
         e.preventDefault(); e.stopPropagation();
         keys['KeyW'] = false;
-        jumpBtn.style.background = 'rgba(255,255,255,0.04)';
+        jumpBtn.style.background = 'rgba(255,255,255,0.12)';
     }, { passive: false });
     overlay.appendChild(jumpBtn);
 
@@ -545,11 +546,13 @@ function initTouchControls() {
     atkBtn.id = 'tb_attack';
     atkBtn.textContent = 'ATK';
     atkBtn.style.cssText = `
-        position: absolute; right: 0; bottom: 0;
-        width: 50%; height: 55%;
-        background: rgba(255,255,255,0.04);
-        color: rgba(255,255,255,0.35);
-        font: bold 18px sans-serif;
+        position: absolute; right: 8px; bottom: 12px;
+        width: 44%; height: 45%;
+        background: rgba(255,255,255,0.12);
+        border: 2px solid rgba(255,255,255,0.3);
+        border-radius: 16px;
+        color: rgba(255,255,255,0.6);
+        font: bold 20px sans-serif;
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
     `;
@@ -557,7 +560,7 @@ function initTouchControls() {
         e.preventDefault(); e.stopPropagation();
         atkHoldStart = Date.now();
         keys['Space'] = true;
-        atkBtn.style.background = 'rgba(255,255,255,0.15)';
+        atkBtn.style.background = 'rgba(255,255,255,0.3)';
     }, { passive: false });
     atkBtn.addEventListener('touchend', (e) => {
         e.preventDefault(); e.stopPropagation();
@@ -567,13 +570,13 @@ function initTouchControls() {
             keys['Control'] = true;
             setTimeout(() => { keys['Control'] = false; }, 100);
         }
-        atkBtn.style.background = 'rgba(255,255,255,0.04)';
+        atkBtn.style.background = 'rgba(255,255,255,0.12)';
         atkHoldStart = 0;
     }, { passive: false });
     atkBtn.addEventListener('touchcancel', (e) => {
         e.preventDefault(); e.stopPropagation();
         keys['Space'] = false;
-        atkBtn.style.background = 'rgba(255,255,255,0.04)';
+        atkBtn.style.background = 'rgba(255,255,255,0.12)';
         atkHoldStart = 0;
     }, { passive: false });
     overlay.appendChild(atkBtn);
