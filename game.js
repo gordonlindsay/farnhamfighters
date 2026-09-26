@@ -608,13 +608,13 @@ function initTouchControls() {
     jumpBtn.id = 'tb_jump';
     jumpBtn.textContent = 'JUMP';
     jumpBtn.style.cssText = `
-        position: absolute; left: 8px; bottom: 12px;
-        width: 44%; height: 45%;
-        background: rgba(0,0,0,0.35);
+        position: absolute; right: 16px; bottom: 100px;
+        width: 72px; height: 72px;
+        background: rgba(0,0,0,0.4);
         border: 2px solid rgba(255,255,255,0.5);
-        border-radius: 16px;
+        border-radius: 50%;
         color: rgba(255,255,255,0.9);
-        font: bold 20px sans-serif;
+        font: bold 14px sans-serif;
         text-shadow: 0 1px 3px rgba(0,0,0,0.5);
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
@@ -628,13 +628,13 @@ function initTouchControls() {
     atkBtn.id = 'tb_attack';
     atkBtn.textContent = 'ATK';
     atkBtn.style.cssText = `
-        position: absolute; right: 8px; bottom: 12px;
-        width: 44%; height: 45%;
-        background: rgba(0,0,0,0.35);
+        position: absolute; right: 16px; bottom: 16px;
+        width: 72px; height: 72px;
+        background: rgba(0,0,0,0.4);
         border: 2px solid rgba(255,255,255,0.5);
-        border-radius: 16px;
+        border-radius: 50%;
         color: rgba(255,255,255,0.9);
-        font: bold 20px sans-serif;
+        font: bold 14px sans-serif;
         text-shadow: 0 1px 3px rgba(0,0,0,0.5);
         display: flex; align-items: center; justify-content: center;
         pointer-events: auto; user-select: none; -webkit-user-select: none;
@@ -9210,7 +9210,7 @@ function gameLoop() {
         const jmp = document.getElementById('tb_jump');
         const atk = document.getElementById('tb_attack');
         const pau = document.getElementById('tb_pause');
-        if (jb) jb.style.display = inGameplay ? 'none' : 'block';
+        if (jb) jb.style.display = 'block';
         if (ok) ok.style.display = inGameplay ? 'none' : 'flex';
         if (jmp) jmp.style.display = inGameplay ? 'flex' : 'none';
         if (atk) atk.style.display = inGameplay ? 'flex' : 'none';
